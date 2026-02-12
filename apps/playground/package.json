@@ -1,0 +1,22 @@
+{
+  "name": "playground",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b tsconfig.build.json && vite build",
+    "preview": "vite preview",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "rxjs": "7.8.2",
+    "@rxjs-spa/core": "0.1.0",
+    "@rxjs-spa/dom": "0.1.0",
+    "@rxjs-spa/router": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "*",
+    "vite": "*",
+    "vitest": "*"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@rxjs-spa/dom",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "production": "./dist/index.js",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "test": "vitest"
+  },
+  "peerDependencies": {
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "rxjs": "7.8.2",
+    "typescript": "*",
+    "vite": "*",
+    "vitest": "*"
+  }
+}

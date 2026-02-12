@@ -1,0 +1,27 @@
+{
+  "name": "rxjs-spa",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "docs"
+  ],
+  "scripts": {
+    "dev": "npm -ws run dev --if-present",
+    "build": "npm -ws run build --if-present",
+    "test": "vitest",
+    "docs:dev": "npm -w docs run dev",
+    "docs:build": "npm -w docs run build",
+    "docs:preview": "npm -w docs run preview",
+    "test:run": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "*",
+    "vite": "*",
+    "vitest": "*",
+    "vitepress": "*"
+  },
+  "overrides": {
+    "rxjs": "7.8.2"
+  }
+}
