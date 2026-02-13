@@ -16,10 +16,11 @@
     "test:run": "vitest run"
   },
   "devDependencies": {
+    "jsdom": "28.0.0",
     "typescript": "*",
     "vite": "*",
-    "vitest": "*",
-    "vitepress": "*"
+    "vitepress": "*",
+    "vitest": "*"
   },
   "overrides": {
     "rxjs": "7.8.2"
