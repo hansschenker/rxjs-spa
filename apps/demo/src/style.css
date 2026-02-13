@@ -297,3 +297,39 @@ strong.negative { color: var(--danger); }
 .alert-error   { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
 [data-theme="dark"] .alert-success { background: #064e3b; color: #6ee7b7; border-color: #065f46; }
 [data-theme="dark"] .alert-error   { background: #7f1d1d; color: #fca5a5; border-color: #991b1b; }
+
+/* ── Login view ──────────────────────────────────────────────────────────── */
+.login-view { max-width: 400px; }
+.login-intro { color: var(--muted); margin-bottom: .5rem; }
+.hint {
+  font-size: .85rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 1.4rem;
+}
+.hint code {
+  font-family: monospace;
+  background: var(--border);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: .82rem;
+}
+
+/* ── Nav auth ────────────────────────────────────────────────────────────── */
+.nav-user {
+  font-size: .85rem;
+  color: var(--muted);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+.btn-danger:hover { background: #b91c1c; }

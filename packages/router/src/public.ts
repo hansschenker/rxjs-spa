@@ -1,5 +1,5 @@
-import { fromEvent, Observable } from 'rxjs'
-import { distinctUntilChanged, filter, map, shareReplay, startWith } from 'rxjs/operators'
+import { EMPTY, fromEvent, Observable, OperatorFunction, of } from 'rxjs'
+import { catchError, distinctUntilChanged, filter, map, shareReplay, startWith, switchMap } from 'rxjs/operators'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -124,6 +124,55 @@ function hashToPath(hash: string): string {
  *
  *   router.navigate('/users/42')
  */
+// ---------------------------------------------------------------------------
+// withGuard — route guard operator
+// ---------------------------------------------------------------------------
+
+/**
+ * withGuard(protectedRoutes, guardFn, onDenied)
+ *
+ * Operator that intercepts `route$` emissions and evaluates a guard function
+ * for protected routes. If the guard returns `false`, `onDenied` is called
+ * (typically to redirect to `/login`) and the route emission is suppressed.
+ *
+ * The guard function returns an `Observable<boolean>` so it supports both
+ * synchronous checks (`of(isAuthenticated)`) and future async checks.
+ *
+ * Uses `switchMap` internally to cancel stale guard checks on rapid navigation.
+ *
+ * @example
+ *   const guarded$ = router.route$.pipe(
+ *     withGuard(
+ *       ['dashboard', 'profile'],
+ *       () => of(authStore.getState().isAuthenticated),
+ *       () => router.navigate('/login'),
+ *     ),
+ *   )
+ */
+export function withGuard<N extends string>(
+  protectedRoutes: N[],
+  guardFn: () => Observable<boolean>,
+  onDenied: () => void,
+): OperatorFunction<RouteMatch<N>, RouteMatch<N>> {
+  return (source: Observable<RouteMatch<N>>): Observable<RouteMatch<N>> =>
+    source.pipe(
+      switchMap((match) => {
+        if (!protectedRoutes.includes(match.name)) return of(match)
+        return guardFn().pipe(
+          switchMap((allowed) => {
+            if (allowed) return of(match)
+            onDenied()
+            return EMPTY
+          }),
+          catchError(() => {
+            onDenied()
+            return EMPTY
+          }),
+        )
+      }),
+    )
+}
+
 export function createRouter<N extends string>(routes: RouteDefinition<N>): Router<N> {
   const route$ = fromEvent(window, 'hashchange').pipe(
     startWith(null), // capture initial URL on first subscribe

@@ -1,6 +1,6 @@
 import './style.css'
-import { Subscription } from 'rxjs'
-import { createRouter } from '@rxjs-spa/router'
+import { Subscription, of } from 'rxjs'
+import { createRouter, withGuard } from '@rxjs-spa/router'
 import { mount } from '@rxjs-spa/dom'
 import { globalStore } from './store/global.store'
 import { navComponent } from './components/nav'
@@ -8,6 +8,7 @@ import { homeView } from './views/home.view'
 import { usersView } from './views/users.view'
 import { userDetailView } from './views/user.view'
 import { contactView } from './views/contact.view'
+import { loginView } from './views/login.view'
 
 // ---------------------------------------------------------------------------
 // Router
@@ -18,6 +19,7 @@ const router = createRouter({
   '/users':     'users',
   '/users/:id': 'user-detail',
   '/contact':   'contact',
+  '/login':     'login',
 } as const)
 
 // ---------------------------------------------------------------------------
@@ -34,12 +36,32 @@ const outletEl = document.querySelector<HTMLElement>('#outlet')!
 const navSub = navComponent(navEl, router, globalStore)
 
 // ---------------------------------------------------------------------------
+// Auth guard
+// ---------------------------------------------------------------------------
+
+const PROTECTED_ROUTES = ['users', 'user-detail'] as const
+
+function authGuard() {
+  return of(globalStore.getState().isAuthenticated)
+}
+
+function onDenied() {
+  const path = window.location.hash.replace(/^#/, '') || '/'
+  globalStore.dispatch({ type: 'SET_REDIRECT', path })
+  router.navigate('/login')
+}
+
+const guarded$ = router.route$.pipe(
+  withGuard([...PROTECTED_ROUTES], authGuard, onDenied),
+)
+
+// ---------------------------------------------------------------------------
 // Outlet — swaps views on route change
 // ---------------------------------------------------------------------------
 
 let currentViewSub: Subscription | null = null
 
-const outletSub = router.route$.subscribe(({ name, params }) => {
+const outletSub = guarded$.subscribe(({ name, params }) => {
   // Teardown the outgoing view's subscriptions
   currentViewSub?.unsubscribe()
   outletEl.innerHTML = ''
@@ -56,6 +78,9 @@ const outletSub = router.route$.subscribe(({ name, params }) => {
       break
     case 'contact':
       currentViewSub = contactView(outletEl)
+      break
+    case 'login':
+      currentViewSub = loginView(outletEl, globalStore, router)
       break
   }
 })
