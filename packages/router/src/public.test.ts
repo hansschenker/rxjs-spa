@@ -1,5 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { createRouter } from './public'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { of, throwError } from 'rxjs'
+import { createRouter, withGuard } from './public'
+import type { RouteMatch } from './public'
 
 // jsdom doesn't fire real hashchange events when you set location.hash,
 // so we trigger it manually in each test.
@@ -118,5 +120,101 @@ describe('createRouter — link()', () => {
     const router = createRouter(ROUTES)
     expect(router.link('/users/42')).toBe('#/users/42')
     expect(router.link('/')).toBe('#/')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// withGuard
+// ---------------------------------------------------------------------------
+
+describe('withGuard', () => {
+  function makeRoutes() {
+    window.location.hash = '#/'
+    return createRouter(ROUTES)
+  }
+
+  it('passes through public routes without calling the guard', () => {
+    const router = makeRoutes()
+    const guard = vi.fn(() => of(false)) // would deny if called
+    const denied = vi.fn()
+    const seen: string[] = []
+
+    const sub = router.route$.pipe(
+      withGuard(['users', 'user-detail'], guard, denied),
+    ).subscribe(r => seen.push(r.name))
+
+    expect(seen).toEqual(['home'])
+    expect(guard).not.toHaveBeenCalled()
+    expect(denied).not.toHaveBeenCalled()
+    sub.unsubscribe()
+  })
+
+  it('passes through protected route when guard returns true', () => {
+    window.location.hash = '#/users'
+    const router = createRouter(ROUTES)
+    const denied = vi.fn()
+    const seen: string[] = []
+
+    const sub = router.route$.pipe(
+      withGuard(['users', 'user-detail'], () => of(true), denied),
+    ).subscribe(r => seen.push(r.name))
+
+    expect(seen).toEqual(['users'])
+    expect(denied).not.toHaveBeenCalled()
+    sub.unsubscribe()
+  })
+
+  it('suppresses protected route and calls onDenied when guard returns false', () => {
+    window.location.hash = '#/users'
+    const router = createRouter(ROUTES)
+    const denied = vi.fn()
+    const seen: string[] = []
+
+    const sub = router.route$.pipe(
+      withGuard(['users', 'user-detail'], () => of(false), denied),
+    ).subscribe(r => seen.push(r.name))
+
+    expect(seen).toEqual([])
+    expect(denied).toHaveBeenCalledOnce()
+    sub.unsubscribe()
+  })
+
+  it('calls onDenied and suppresses when guard observable errors', () => {
+    window.location.hash = '#/users'
+    const router = createRouter(ROUTES)
+    const denied = vi.fn()
+    const seen: string[] = []
+
+    const sub = router.route$.pipe(
+      withGuard(['users'], () => throwError(() => new Error('guard failed')), denied),
+    ).subscribe(r => seen.push(r.name))
+
+    expect(seen).toEqual([])
+    expect(denied).toHaveBeenCalledOnce()
+    sub.unsubscribe()
+  })
+
+  it('re-evaluates guard on each navigation', () => {
+    window.location.hash = '#/'
+    const router = makeRoutes()
+    let isAuthenticated = false
+    const denied = vi.fn()
+    const seen: string[] = []
+
+    const sub = router.route$.pipe(
+      withGuard(['users'], () => of(isAuthenticated), denied),
+    ).subscribe(r => seen.push(r.name))
+
+    // Navigate to protected route — denied
+    setHash('#/users')
+    expect(denied).toHaveBeenCalledOnce()
+    expect(seen).toEqual(['home'])
+
+    // Authenticate, navigate again — allowed
+    isAuthenticated = true
+    setHash('#/')
+    setHash('#/users')
+    expect(seen).toEqual(['home', 'home', 'users'])
+    sub.unsubscribe()
   })
 })
