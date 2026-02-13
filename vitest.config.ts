@@ -11,6 +11,7 @@ export default defineConfig({
       'packages/dom',
       'packages/forms',
       'packages/http',
+      'packages/persist',
       'packages/router',
       'packages/store',
       'apps/playground',

@@ -9,6 +9,7 @@ export default defineConfig({
       '@rxjs-spa/store',
       '@rxjs-spa/http',
       '@rxjs-spa/forms',
+      '@rxjs-spa/persist',
     ],
   },
 })

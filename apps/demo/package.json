@@ -15,7 +15,8 @@
     "@rxjs-spa/router": "0.1.0",
     "@rxjs-spa/store": "0.1.0",
     "@rxjs-spa/http": "0.1.0",
-    "@rxjs-spa/forms": "0.1.0"
+    "@rxjs-spa/forms": "0.1.0",
+    "@rxjs-spa/persist": "0.1.0"
   },
   "devDependencies": {
     "typescript": "*",

@@ -1,4 +1,4 @@
-import { createStore } from '@rxjs-spa/store'
+import { createPersistedStore } from '@rxjs-spa/persist'
 
 // ---------------------------------------------------------------------------
 // Model
@@ -47,12 +47,16 @@ function globalReducer(state: GlobalState, action: GlobalAction): GlobalState {
 }
 
 // ---------------------------------------------------------------------------
-// Store (singleton — shared across all views)
+// Store (singleton — persisted to localStorage)
 // ---------------------------------------------------------------------------
 
-export const globalStore = createStore<GlobalState, GlobalAction>(globalReducer, {
-  theme: 'light',
-  isAuthenticated: false,
-  user: null,
-  redirectPath: null,
-})
+export const globalStore = createPersistedStore<GlobalState, GlobalAction>(
+  globalReducer,
+  { theme: 'light', isAuthenticated: false, user: null, redirectPath: null },
+  'rxjs-spa:global',
+  {
+    // redirectPath is ephemeral navigation state — don't persist it
+    pick: ['theme', 'isAuthenticated', 'user'],
+    version: 1,
+  },
+)
