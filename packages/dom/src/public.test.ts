@@ -144,8 +144,10 @@ describe('@rxjs-spa/dom sinks', () => {
         s.add(text(label)(item$.pipe(map((x) => x.label))))
 
         // internal event stream: remove button -> dispatch
+        // Note: `dispatch` here is ctx.dispatch (not the DOM sink), so we
+        // subscribe directly instead of using the sink form.
         const remove$ = events<MouseEvent>(remove, 'click').pipe(map(() => ({ type: 'remove' as const, id })))
-        s.add(dispatch({ next: dispatch })(remove$))
+        s.add(remove$.subscribe((action) => dispatch(action)))
 
         return { node: li, sub: s }
       },

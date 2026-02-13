@@ -1,27 +1,122 @@
-import { describe, it, expect } from 'vitest'
-import { Subject, take } from 'rxjs'
-import { remember } from './public'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { createRouter } from './public'
 
-describe('remember', () => {
-  it('replays the latest value to late subscribers', () => {
-    const s = new Subject<number>()
-    const shared$ = s.pipe(remember())
+// jsdom doesn't fire real hashchange events when you set location.hash,
+// so we trigger it manually in each test.
+function setHash(path: string) {
+  window.location.hash = path
+  window.dispatchEvent(new Event('hashchange'))
+}
 
-    const a: number[] = []
-    const b: number[] = []
+const ROUTES = {
+  '/': 'home',
+  '/users': 'users',
+  '/users/:id': 'user-detail',
+  '/users/:id/posts/:postId': 'user-post',
+} as const
 
-    // subscriber A consumes two values then unsubscribes
-    shared$.pipe(take(2)).subscribe(v => a.push(v))
-    s.next(1)
-    s.next(2)
+describe('createRouter — route matching', () => {
+  beforeEach(() => {
+    window.location.hash = ''
+  })
 
-    // late subscriber should immediately get latest (2)
-    shared$.pipe(take(1)).subscribe(v => b.push(v))
+  it('matches the root route', () => {
+    window.location.hash = '#/'
+    const router = createRouter(ROUTES)
+    const seen: string[] = []
+    const sub = router.route$.subscribe(r => seen.push(r.name))
+    expect(seen).toEqual(['home'])
+    sub.unsubscribe()
+  })
 
-    // end the source to avoid dangling subscriptions in tests
-    s.complete()
+  it('matches a static path', () => {
+    window.location.hash = '#/users'
+    const router = createRouter(ROUTES)
+    const seen: string[] = []
+    const sub = router.route$.subscribe(r => seen.push(r.name))
+    expect(seen).toEqual(['users'])
+    sub.unsubscribe()
+  })
 
-    expect(a).toEqual([1, 2])
-    expect(b).toEqual([2])
+  it('extracts a single param', () => {
+    window.location.hash = '#/users/42'
+    const router = createRouter(ROUTES)
+    const matches: ReturnType<typeof router.route$['subscribe']>[] = []
+    const params: Record<string, string>[] = []
+    const sub = router.route$.subscribe(r => params.push(r.params))
+    expect(params[0]).toEqual({ id: '42' })
+    sub.unsubscribe()
+  })
+
+  it('extracts multiple params', () => {
+    window.location.hash = '#/users/7/posts/99'
+    const router = createRouter(ROUTES)
+    const params: Record<string, string>[] = []
+    const sub = router.route$.subscribe(r => params.push(r.params))
+    expect(params[0]).toEqual({ id: '7', postId: '99' })
+    sub.unsubscribe()
+  })
+
+  it('does not emit for unrecognised paths', () => {
+    window.location.hash = '#/not-a-real-route'
+    const router = createRouter(ROUTES)
+    const seen: string[] = []
+    const sub = router.route$.subscribe(r => seen.push(r.name))
+    expect(seen).toEqual([])
+    sub.unsubscribe()
+  })
+})
+
+describe('createRouter — navigation', () => {
+  beforeEach(() => {
+    window.location.hash = '#/'
+  })
+
+  it('navigate() updates the hash and emits the new route', () => {
+    const router = createRouter(ROUTES)
+    const names: string[] = []
+    const sub = router.route$.subscribe(r => names.push(r.name))
+
+    setHash('#/users')
+    setHash('#/users/5')
+
+    expect(names).toEqual(['home', 'users', 'user-detail'])
+    sub.unsubscribe()
+  })
+
+  it('does not re-emit when navigating to the same path', () => {
+    window.location.hash = '#/users'
+    const router = createRouter(ROUTES)
+    const names: string[] = []
+    const sub = router.route$.subscribe(r => names.push(r.name))
+
+    setHash('#/users') // same — should be deduplicated
+    setHash('#/users/1') // different — should emit
+
+    expect(names).toEqual(['users', 'user-detail'])
+    sub.unsubscribe()
+  })
+
+  it('late subscriber receives the current route immediately', () => {
+    window.location.hash = '#/users/99'
+    const router = createRouter(ROUTES)
+
+    // First subscriber to warm up shareReplay
+    const sub1 = router.route$.subscribe(() => {})
+
+    const late: string[] = []
+    const sub2 = router.route$.subscribe(r => late.push(r.name))
+
+    expect(late).toEqual(['user-detail'])
+    sub1.unsubscribe()
+    sub2.unsubscribe()
+  })
+})
+
+describe('createRouter — link()', () => {
+  it('prepends # to paths', () => {
+    const router = createRouter(ROUTES)
+    expect(router.link('/users/42')).toBe('#/users/42')
+    expect(router.link('/')).toBe('#/')
   })
 })
