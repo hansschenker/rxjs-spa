@@ -1,0 +1,39 @@
+{
+  "name": "@rxjs-spa/errors",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "production": "./dist/index.js",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "test": "vitest"
+  },
+  "peerDependencies": {
+    "rxjs": "7.8.2",
+    "@rxjs-spa/store": "0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@rxjs-spa/store": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "rxjs": "7.8.2",
+    "@rxjs-spa/store": "0.1.0",
+    "typescript": "*",
+    "vite": "*",
+    "vitest": "*"
+  }
+}

@@ -9,6 +9,7 @@ export default defineConfig({
     projects: [
       'packages/core',
       'packages/dom',
+      'packages/errors',
       'packages/forms',
       'packages/http',
       'packages/persist',
