@@ -37,7 +37,7 @@ npx vitest run packages/router/src/public.test.ts
 ```
 rxjs-spa/
   apps/
-    demo/           Full-stack demo: 3 routes, MVU, HTTP, global + local stores
+    demo/           Full-stack demo: 6 routes (incl. 404), MVU, HTTP, global + local stores
     playground/     Original quick-start playground (counter + todos)
   packages/
     core/           @rxjs-spa/core    — remember(), rememberWhileSubscribed()
@@ -99,7 +99,11 @@ store.actions$.pipe(ofType('FETCH'), switchMap(() => http.get(…))).subscribe(s
 **`@rxjs-spa/router`** (`packages/router/src/public.ts`)
 - `createRouter<N>(routes)` → `{ route$, navigate, link }`
 - Hash-based (`window.location.hash` + `fromEvent(window, 'hashchange')`)
-- `:param` segment matching; `distinctUntilChanged` deduplicates same-path navigation
+- `:param` segment matching; `distinctUntilChanged` deduplicates same path+query
+- `RouteMatch<N>` includes `name`, `params`, `query`, and `path`
+- Query params: `#/users?page=2&sort=name` → `{ query: { page: '2', sort: 'name' } }` — URI-decoded, emits on query-only changes
+- Wildcard route: `'*': 'not-found'` — catch-all for unrecognised paths, always checked last
+- `withGuard(protectedRoutes, guardFn, onDenied)` — route guard operator; async-capable via `Observable<boolean>`
 
 **`@rxjs-spa/dom`** (`packages/dom/src/public.ts`, `events.ts`, `observe.ts`)
 - Sources: `events`, `valueChanges`, `checkedChanges`, `textChanges`, `attrChanges`, `hasClass`
