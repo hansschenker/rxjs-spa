@@ -59,12 +59,71 @@ describe('createRouter — route matching', () => {
     sub.unsubscribe()
   })
 
-  it('does not emit for unrecognised paths', () => {
+  it('does not emit for unrecognised paths when no wildcard defined', () => {
     window.location.hash = '#/not-a-real-route'
     const router = createRouter(ROUTES)
     const seen: string[] = []
     const sub = router.route$.subscribe(r => seen.push(r.name))
     expect(seen).toEqual([])
+    sub.unsubscribe()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Wildcard / 404 route
+// ---------------------------------------------------------------------------
+
+const ROUTES_WITH_WILDCARD = {
+  '/': 'home',
+  '/users': 'users',
+  '/users/:id': 'user-detail',
+  '*': 'not-found',
+} as const
+
+describe('createRouter — wildcard route', () => {
+  beforeEach(() => {
+    window.location.hash = ''
+  })
+
+  it('matches wildcard for unrecognised paths', () => {
+    window.location.hash = '#/some/unknown/path'
+    const router = createRouter(ROUTES_WITH_WILDCARD)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    expect(seen).toHaveLength(1)
+    expect(seen[0].name).toBe('not-found')
+    expect(seen[0].params).toEqual({})
+    expect(seen[0].path).toBe('/some/unknown/path')
+    sub.unsubscribe()
+  })
+
+  it('prefers specific routes over wildcard', () => {
+    window.location.hash = '#/users'
+    const router = createRouter(ROUTES_WITH_WILDCARD)
+    const seen: string[] = []
+    const sub = router.route$.subscribe(r => seen.push(r.name))
+    expect(seen).toEqual(['users'])
+    sub.unsubscribe()
+  })
+
+  it('wildcard matches root when / is not defined', () => {
+    window.location.hash = '#/anything'
+    const router = createRouter({ '/about': 'about', '*': 'fallback' } as const)
+    const seen: string[] = []
+    const sub = router.route$.subscribe(r => seen.push(r.name))
+    expect(seen).toEqual(['fallback'])
+    sub.unsubscribe()
+  })
+
+  it('navigation to unknown path emits wildcard route', () => {
+    window.location.hash = '#/'
+    const router = createRouter(ROUTES_WITH_WILDCARD)
+    const seen: string[] = []
+    const sub = router.route$.subscribe(r => seen.push(r.name))
+
+    setHash('#/does-not-exist')
+
+    expect(seen).toEqual(['home', 'not-found'])
     sub.unsubscribe()
   })
 })

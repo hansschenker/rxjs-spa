@@ -84,12 +84,24 @@ function matchRoutes<N extends string>(
   path: string,
   routes: RouteDefinition<N>,
 ): RouteMatch<N> | null {
+  let wildcard: { name: N } | null = null
+
   for (const [pattern, name] of Object.entries(routes) as [string, N][]) {
+    if (pattern === '*') {
+      wildcard = { name }
+      continue
+    }
     const params = matchPattern(pattern, path)
     if (params !== null) {
       return { name, params, path }
     }
   }
+
+  // Fall back to wildcard if no specific route matched
+  if (wildcard) {
+    return { name: wildcard.name, params: {}, path }
+  }
+
   return null
 }
 
@@ -109,13 +121,14 @@ function hashToPath(hash: string): string {
  *
  * - Subscribing to `route$` starts listening to hash changes immediately.
  * - The stream replays the current route to late subscribers (shareReplay).
- * - Unrecognised paths are silently skipped (no emission).
+ * - Unrecognised paths are skipped unless a `'*'` wildcard route is defined.
  *
  * @example
  *   const router = createRouter({
  *     '/':          'home',
  *     '/users':     'users',
  *     '/users/:id': 'user-detail',
+ *     '*':          'not-found',   // catch-all for unrecognised paths
  *   })
  *
  *   router.route$.subscribe(({ name, params }) => {

@@ -334,6 +334,11 @@ strong.negative { color: var(--danger); }
 }
 .btn-danger:hover { background: #b91c1c; }
 
+/* ── 404 view ───────────────────────────────────────────────────────────── */
+.not-found-view { text-align: center; padding: 3rem 1rem; }
+.not-found-view h1 { font-size: 4rem; color: var(--muted); margin-bottom: 0.5rem; }
+.not-found-view code { background: var(--surface); padding: 0.15em 0.4em; border-radius: 4px; }
+
 /* ── Error toast ────────────────────────────────────────────────────────── */
 .error-toast {
   position: fixed;

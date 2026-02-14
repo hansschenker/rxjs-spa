@@ -10,6 +10,7 @@ import { usersView } from './views/users.view'
 import { userDetailView } from './views/user.view'
 import { contactView } from './views/contact.view'
 import { loginView } from './views/login.view'
+import { notFoundView } from './views/not-found.view'
 
 // ---------------------------------------------------------------------------
 // Error toast — shows errors from the global handler, auto-dismisses
@@ -39,6 +40,7 @@ const router = createRouter({
   '/users/:id': 'user-detail',
   '/contact':   'contact',
   '/login':     'login',
+  '*':          'not-found',
 } as const)
 
 // ---------------------------------------------------------------------------
@@ -100,6 +102,9 @@ const outletSub = guarded$.subscribe(({ name, params }) => {
       break
     case 'login':
       currentViewSub = loginView(outletEl, globalStore, router)
+      break
+    case 'not-found':
+      currentViewSub = notFoundView(outletEl, router)
       break
   }
 })
