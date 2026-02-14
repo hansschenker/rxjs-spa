@@ -1,4 +1,4 @@
-import { EMPTY, defer, from, fromEvent, Observable, OperatorFunction, of, Subject } from 'rxjs'
+import { EMPTY, Subscription, defer, from, fromEvent, Observable, OperatorFunction, of, Subject } from 'rxjs'
 import { catchError, distinctUntilChanged, filter, map, shareReplay, startWith, switchMap, tap } from 'rxjs/operators'
 
 // ---------------------------------------------------------------------------
@@ -77,6 +77,38 @@ export interface Router<N extends string> {
    * No-op in hash mode.
    */
   destroy(): void
+}
+
+export interface DataLoaderArgs {
+  params: RouteParams
+  query: QueryParams
+  path: string
+}
+
+export interface DataViewContext<N extends string, D> {
+  route: RouteMatch<N>
+  data: D
+  router: DataRouter<N, D>
+}
+
+export interface DataRouteDefinition<N extends string, D> {
+  name: N
+  loader?: (args: DataLoaderArgs) => Observable<D> | Promise<D>
+  mount: (outlet: Element, context: DataViewContext<N, D>) => Subscription
+  pending?: (outlet: Element, route: RouteMatch<N>) => Subscription | void
+  error?: (outlet: Element, error: unknown, route: RouteMatch<N>) => Subscription | void
+}
+
+export type DataRoutes<N extends string, D> = Record<string, DataRouteDefinition<N, D>>
+
+export type DataRouteState<N extends string, D> =
+  | { status: 'loading'; route: RouteMatch<N> }
+  | { status: 'success'; route: RouteMatch<N>; data: D }
+  | { status: 'error'; route: RouteMatch<N>; error: unknown }
+
+export interface DataRouter<N extends string, D> extends Router<N> {
+  routeState$: Observable<DataRouteState<N, D>>
+  mount(outlet: Element): Subscription
 }
 
 // ---------------------------------------------------------------------------
@@ -387,4 +419,87 @@ export function createRouter<N extends string>(
       document.removeEventListener('click', onClick)
     },
   }
+}
+
+// ---------------------------------------------------------------------------
+// createDataRouter
+// ---------------------------------------------------------------------------
+
+export function createDataRouter<N extends string, D>(
+  routes: DataRoutes<N, D>,
+  options?: RouterOptions,
+): DataRouter<N, D> {
+  const baseRoutes = Object.fromEntries(
+    Object.entries(routes).map(([path, def]) => [path, def.name]),
+  ) as RouteDefinition<N>
+
+  const routeByName = new Map<N, DataRouteDefinition<N, D>>()
+  for (const def of Object.values(routes)) {
+    routeByName.set(def.name, def)
+  }
+
+  const router = createRouter(baseRoutes, options)
+
+  const routeState$ = router.route$.pipe(
+    switchMap((route) => {
+      const def = routeByName.get(route.name)
+      if (!def) return EMPTY
+
+      if (!def.loader) {
+        return of({
+          status: 'success' as const,
+          route,
+          data: undefined as D,
+        })
+      }
+
+      return defer(() => from(def.loader!({
+        params: route.params,
+        query: route.query,
+        path: route.path,
+      }))).pipe(
+        map((data) => ({ status: 'success' as const, route, data })),
+        startWith({ status: 'loading' as const, route }),
+        catchError((error) => of({ status: 'error' as const, route, error })),
+      )
+    }),
+    shareReplay({ bufferSize: 1, refCount: false }),
+  )
+
+  let viewSub: Subscription | null = null
+
+  const dataRouter: DataRouter<N, D> = {
+    ...router,
+    routeState$,
+    mount(outlet: Element): Subscription {
+      return routeState$.subscribe((state) => {
+        viewSub?.unsubscribe()
+        viewSub = null
+        outlet.innerHTML = ''
+
+        const def = routeByName.get(state.route.name)
+        if (!def) return
+
+        if (state.status === 'loading') {
+          const pendingSub = def.pending?.(outlet, state.route)
+          if (pendingSub) viewSub = pendingSub
+          return
+        }
+
+        if (state.status === 'error') {
+          const errorSub = def.error?.(outlet, state.error, state.route)
+          if (errorSub) viewSub = errorSub
+          return
+        }
+
+        viewSub = def.mount(outlet, {
+          route: state.route,
+          data: state.data,
+          router: dataRouter,
+        })
+      })
+    },
+  }
+
+  return dataRouter
 }
