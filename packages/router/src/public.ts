@@ -8,13 +8,18 @@ import { catchError, distinctUntilChanged, filter, map, shareReplay, startWith, 
 /** URL params extracted from dynamic segments (e.g. `/users/:id`). */
 export type RouteParams = Record<string, string>
 
+/** Query string params (e.g. `?page=2&sort=name`). */
+export type QueryParams = Record<string, string>
+
 /** A matched route. */
 export interface RouteMatch<N extends string = string> {
   /** The name you gave this route in `createRouter`. */
   name: N
   /** Extracted URL params (e.g. `{ id: '42' }` for `/users/:id`). */
   params: RouteParams
-  /** The raw path portion after the `#` (e.g. `/users/42`). */
+  /** Parsed query string params (e.g. `{ page: '2' }` for `?page=2`). */
+  query: QueryParams
+  /** The raw path portion after the `#`, without query string (e.g. `/users/42`). */
   path: string
 }
 
@@ -82,6 +87,7 @@ function matchPattern(pattern: string, path: string): RouteParams | null {
 
 function matchRoutes<N extends string>(
   path: string,
+  query: QueryParams,
   routes: RouteDefinition<N>,
 ): RouteMatch<N> | null {
   let wildcard: { name: N } | null = null
@@ -93,21 +99,40 @@ function matchRoutes<N extends string>(
     }
     const params = matchPattern(pattern, path)
     if (params !== null) {
-      return { name, params, path }
+      return { name, params, query, path }
     }
   }
 
   // Fall back to wildcard if no specific route matched
   if (wildcard) {
-    return { name: wildcard.name, params: {}, path }
+    return { name: wildcard.name, params: {}, query, path }
   }
 
   return null
 }
 
-function hashToPath(hash: string): string {
-  const path = hash.replace(/^#/, '') || '/'
-  return path.startsWith('/') ? path : '/' + path
+function parseHash(hash: string): { path: string; query: QueryParams } {
+  const raw = hash.replace(/^#/, '') || '/'
+  const full = raw.startsWith('/') ? raw : '/' + raw
+
+  const qIndex = full.indexOf('?')
+  if (qIndex === -1) return { path: full, query: {} }
+
+  const path = full.slice(0, qIndex) || '/'
+  const query: QueryParams = {}
+  const search = full.slice(qIndex + 1)
+
+  for (const pair of search.split('&')) {
+    if (!pair) continue
+    const eqIndex = pair.indexOf('=')
+    if (eqIndex === -1) {
+      query[decodeURIComponent(pair)] = ''
+    } else {
+      query[decodeURIComponent(pair.slice(0, eqIndex))] = decodeURIComponent(pair.slice(eqIndex + 1))
+    }
+  }
+
+  return { path, query }
 }
 
 // ---------------------------------------------------------------------------
@@ -189,10 +214,12 @@ export function withGuard<N extends string>(
 export function createRouter<N extends string>(routes: RouteDefinition<N>): Router<N> {
   const route$ = fromEvent(window, 'hashchange').pipe(
     startWith(null), // capture initial URL on first subscribe
-    map(() => hashToPath(window.location.hash)),
-    map((path) => matchRoutes(path, routes)),
+    map(() => parseHash(window.location.hash)),
+    map(({ path, query }) => matchRoutes(path, query, routes)),
     filter((r): r is RouteMatch<N> => r !== null),
-    distinctUntilChanged((a, b) => a.path === b.path),
+    distinctUntilChanged((a, b) =>
+      a.path === b.path && JSON.stringify(a.query) === JSON.stringify(b.query),
+    ),
     shareReplay({ bufferSize: 1, refCount: false }),
   )
 

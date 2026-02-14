@@ -128,6 +128,97 @@ describe('createRouter — wildcard route', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Query params
+// ---------------------------------------------------------------------------
+
+describe('createRouter — query params', () => {
+  beforeEach(() => {
+    window.location.hash = ''
+  })
+
+  it('parses query string into query object', () => {
+    window.location.hash = '#/users?page=2&sort=name'
+    const router = createRouter(ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0].name).toBe('users')
+    expect(seen[0].query).toEqual({ page: '2', sort: 'name' })
+    expect(seen[0].path).toBe('/users')
+    sub.unsubscribe()
+  })
+
+  it('provides empty query object when no query string', () => {
+    window.location.hash = '#/users'
+    const router = createRouter(ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+
+    expect(seen[0].query).toEqual({})
+    sub.unsubscribe()
+  })
+
+  it('decodes URI-encoded query values', () => {
+    window.location.hash = '#/?msg=hello%20world&tag=a%26b'
+    const router = createRouter(ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+
+    expect(seen[0].query).toEqual({ msg: 'hello world', tag: 'a&b' })
+    sub.unsubscribe()
+  })
+
+  it('handles query keys without values', () => {
+    window.location.hash = '#/users?debug'
+    const router = createRouter(ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+
+    expect(seen[0].query).toEqual({ debug: '' })
+    sub.unsubscribe()
+  })
+
+  it('emits when query changes on the same path', () => {
+    window.location.hash = '#/users?page=1'
+    const router = createRouter(ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+
+    setHash('#/users?page=2')
+
+    expect(seen).toHaveLength(2)
+    expect(seen[0].query).toEqual({ page: '1' })
+    expect(seen[1].query).toEqual({ page: '2' })
+    sub.unsubscribe()
+  })
+
+  it('does not re-emit when path and query are identical', () => {
+    window.location.hash = '#/users?page=1'
+    const router = createRouter(ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+
+    setHash('#/users?page=1')
+
+    expect(seen).toHaveLength(1)
+    sub.unsubscribe()
+  })
+
+  it('works with params and query together', () => {
+    window.location.hash = '#/users/42?tab=posts'
+    const router = createRouter(ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+
+    expect(seen[0].name).toBe('user-detail')
+    expect(seen[0].params).toEqual({ id: '42' })
+    expect(seen[0].query).toEqual({ tab: 'posts' })
+    sub.unsubscribe()
+  })
+})
+
 describe('createRouter — navigation', () => {
   beforeEach(() => {
     window.location.hash = '#/'
