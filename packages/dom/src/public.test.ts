@@ -1,10 +1,12 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { Subject, map, Subscription } from 'rxjs'
 import {
   attr,
   classToggle,
   dispatch,
+  documentTitle,
   events,
+  metaContent,
   mount,
   prop,
   renderKeyedComponents,
@@ -197,5 +199,103 @@ describe('@rxjs-spa/dom sinks', () => {
 
     view.unsubscribe()
     expect(root.getAttribute('data-unmounted')).toBe('yes')
+  })
+})
+
+// ===========================================================================
+// Document head sinks
+// ===========================================================================
+
+describe('documentTitle', () => {
+  afterEach(() => {
+    document.title = ''
+  })
+
+  it('sets document.title on each emission', () => {
+    const s = new Subject<string>()
+    const sub = documentTitle()(s)
+
+    s.next('Home')
+    expect(document.title).toBe('Home')
+
+    s.next('Users')
+    expect(document.title).toBe('Users')
+
+    sub.unsubscribe()
+  })
+
+  it('appends suffix when provided', () => {
+    const s = new Subject<string>()
+    const sub = documentTitle('rxjs-spa')(s)
+
+    s.next('Home')
+    expect(document.title).toBe('Home | rxjs-spa')
+
+    s.next('Contact')
+    expect(document.title).toBe('Contact | rxjs-spa')
+
+    sub.unsubscribe()
+  })
+
+  it('stops updating after unsubscribe', () => {
+    const s = new Subject<string>()
+    const sub = documentTitle()(s)
+
+    s.next('Home')
+    sub.unsubscribe()
+
+    s.next('Should not appear')
+    expect(document.title).toBe('Home')
+  })
+})
+
+describe('metaContent', () => {
+  afterEach(() => {
+    document.querySelectorAll('meta[name="description"]').forEach(el => el.remove())
+    document.querySelectorAll('meta[name="keywords"]').forEach(el => el.remove())
+  })
+
+  it('creates a <meta> tag if it does not exist', () => {
+    const s = new Subject<string>()
+    const sub = metaContent('description')(s)
+
+    s.next('A demo page')
+
+    const el = document.querySelector<HTMLMetaElement>('meta[name="description"]')
+    expect(el).not.toBeNull()
+    expect(el!.getAttribute('content')).toBe('A demo page')
+
+    sub.unsubscribe()
+  })
+
+  it('updates an existing <meta> tag', () => {
+    const existing = document.createElement('meta')
+    existing.setAttribute('name', 'description')
+    existing.setAttribute('content', 'old')
+    document.head.appendChild(existing)
+
+    const s = new Subject<string>()
+    const sub = metaContent('description')(s)
+
+    s.next('new content')
+
+    expect(existing.getAttribute('content')).toBe('new content')
+    // Should not create a duplicate
+    expect(document.querySelectorAll('meta[name="description"]')).toHaveLength(1)
+
+    sub.unsubscribe()
+  })
+
+  it('updates content on each emission', () => {
+    const s = new Subject<string>()
+    const sub = metaContent('keywords')(s)
+
+    s.next('rxjs, spa')
+    s.next('rxjs, spa, framework')
+
+    const el = document.querySelector<HTMLMetaElement>('meta[name="keywords"]')
+    expect(el!.getAttribute('content')).toBe('rxjs, spa, framework')
+
+    sub.unsubscribe()
   })
 })

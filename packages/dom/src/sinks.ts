@@ -119,6 +119,36 @@ export function mount(
   return s
 }
 
+/**
+ * documentTitle(suffix?)(value$)
+ * Sets `document.title` on each emission. If `suffix` is provided,
+ * the title is formatted as `"value | suffix"`.
+ */
+export function documentTitle(suffix?: string) {
+  return (value$: Observable<string>): Subscription =>
+    value$.subscribe((title) => {
+      document.title = suffix ? `${title} | ${suffix}` : title
+    })
+}
+
+/**
+ * metaContent(name)(value$)
+ * Upserts a `<meta name="...">` tag in `<head>` with the given content.
+ * Creates the element if it doesn't exist.
+ */
+export function metaContent(name: string) {
+  return (value$: Observable<string>): Subscription =>
+    value$.subscribe((content) => {
+      let el = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)
+      if (!el) {
+        el = document.createElement('meta')
+        el.setAttribute('name', name)
+        document.head.appendChild(el)
+      }
+      el.setAttribute('content', content)
+    })
+}
+
 export type KeyFn<T> = (item: T, index: number) => string
 export type CreateFn<T> = (item: T, index: number) => Node
 export type UpdateFn<T> = (node: Node, item: T, index: number) => void

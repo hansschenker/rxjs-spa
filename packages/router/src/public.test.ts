@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { of, throwError } from 'rxjs'
-import { createRouter, withGuard } from './public'
+import { createRouter, withGuard, withScrollReset, lazy } from './public'
 import type { RouteMatch, Router } from './public'
 
 // jsdom doesn't fire real hashchange events when you set location.hash,
@@ -795,5 +795,116 @@ describe('createRouter — history mode: withGuard', () => {
     expect(seen).toEqual(['home', 'users'])
     expect(denied).not.toHaveBeenCalled()
     sub.unsubscribe()
+  })
+})
+
+// ===========================================================================
+// withScrollReset
+// ===========================================================================
+
+describe('withScrollReset', () => {
+  beforeEach(() => {
+    window.location.hash = '#/'
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('calls scrollTo on each route emission', () => {
+    const router = createRouter(ROUTES)
+    const seen: string[] = []
+
+    const sub = router.route$.pipe(
+      withScrollReset(),
+    ).subscribe(r => seen.push(r.name))
+
+    setHash('#/users')
+    setHash('#/users/5')
+
+    expect(seen).toEqual(['home', 'users', 'user-detail'])
+    expect(window.scrollTo).toHaveBeenCalledTimes(3)
+    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, left: 0 })
+    sub.unsubscribe()
+  })
+
+  it('passes through RouteMatch unchanged', () => {
+    window.location.hash = '#/users/42'
+    const router = createRouter(ROUTES)
+    const matches: RouteMatch[] = []
+
+    const sub = router.route$.pipe(
+      withScrollReset(),
+    ).subscribe(r => matches.push(r))
+
+    expect(matches).toHaveLength(1)
+    expect(matches[0].name).toBe('user-detail')
+    expect(matches[0].params).toEqual({ id: '42' })
+    sub.unsubscribe()
+  })
+
+  it('composes with withGuard — denied routes do not scroll', () => {
+    const router = createRouter(ROUTES)
+    const denied = vi.fn()
+    const seen: string[] = []
+
+    const sub = router.route$.pipe(
+      withGuard(['users'], () => of(false), denied),
+      withScrollReset(),
+    ).subscribe(r => seen.push(r.name))
+
+    setHash('#/users')
+
+    // Home scrolled, but denied /users did not
+    expect(seen).toEqual(['home'])
+    expect(window.scrollTo).toHaveBeenCalledTimes(1)
+    sub.unsubscribe()
+  })
+})
+
+// ===========================================================================
+// lazy
+// ===========================================================================
+
+describe('lazy', () => {
+  it('emits the resolved value and completes', async () => {
+    const result$ = lazy(() => Promise.resolve({ hello: 'world' }))
+    const values: { hello: string }[] = []
+    let completed = false
+
+    await new Promise<void>((resolve) => {
+      result$.subscribe({
+        next: (v) => values.push(v),
+        complete: () => { completed = true; resolve() },
+      })
+    })
+
+    expect(values).toEqual([{ hello: 'world' }])
+    expect(completed).toBe(true)
+  })
+
+  it('is cold — loader is not called until subscribe', () => {
+    const loader = vi.fn(() => Promise.resolve(42))
+    const result$ = lazy(loader)
+
+    expect(loader).not.toHaveBeenCalled()
+
+    const sub = result$.subscribe(() => {})
+    expect(loader).toHaveBeenCalledOnce()
+    sub.unsubscribe()
+  })
+
+  it('propagates loader errors', async () => {
+    const result$ = lazy(() => Promise.reject(new Error('load failed')))
+    let errorMsg = ''
+
+    await new Promise<void>((resolve) => {
+      result$.subscribe({
+        error: (e) => { errorMsg = e.message; resolve() },
+      })
+    })
+
+    expect(errorMsg).toBe('load failed')
   })
 })

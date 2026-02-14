@@ -1,5 +1,5 @@
-import { EMPTY, fromEvent, Observable, OperatorFunction, of, Subject } from 'rxjs'
-import { catchError, distinctUntilChanged, filter, map, shareReplay, startWith, switchMap } from 'rxjs/operators'
+import { EMPTY, defer, from, fromEvent, Observable, OperatorFunction, of, Subject } from 'rxjs'
+import { catchError, distinctUntilChanged, filter, map, shareReplay, startWith, switchMap, tap } from 'rxjs/operators'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -250,6 +250,49 @@ export function withGuard<N extends string>(
         )
       }),
     )
+}
+
+// ---------------------------------------------------------------------------
+// withScrollReset — scroll to top on route change
+// ---------------------------------------------------------------------------
+
+/**
+ * withScrollReset()
+ *
+ * Operator that scrolls to the top of the page on each route emission.
+ * Pipe after `withGuard` so denied routes don't trigger a scroll.
+ *
+ * @example
+ *   const routed$ = router.route$.pipe(
+ *     withGuard([...], guardFn, onDenied),
+ *     withScrollReset(),
+ *   )
+ */
+export function withScrollReset<N extends string>(): OperatorFunction<RouteMatch<N>, RouteMatch<N>> {
+  return (source: Observable<RouteMatch<N>>): Observable<RouteMatch<N>> =>
+    source.pipe(
+      tap(() => window.scrollTo({ top: 0, left: 0 })),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// lazy — cold Observable from dynamic import()
+// ---------------------------------------------------------------------------
+
+/**
+ * lazy(loader)
+ *
+ * Wraps a dynamic `import()` call in a cold Observable. The import is only
+ * triggered on subscribe, and `switchMap` in the consumer naturally cancels
+ * stale loads on rapid navigation.
+ *
+ * @example
+ *   lazy(() => import('./views/home.view')).pipe(
+ *     map(m => m.homeView),
+ *   )
+ */
+export function lazy<T>(loader: () => Promise<T>): Observable<T> {
+  return defer(() => from(loader()))
 }
 
 export function createRouter<N extends string>(

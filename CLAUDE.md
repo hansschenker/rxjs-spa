@@ -108,11 +108,15 @@ store.actions$.pipe(ofType('FETCH'), switchMap(() => http.get(…))).subscribe(s
 - Query params: `?page=2&sort=name` → `{ query: { page: '2', sort: 'name' } }` — URI-decoded, emits on query-only changes
 - Wildcard route: `'*': 'not-found'` — catch-all for unrecognised paths, always checked last
 - `withGuard(protectedRoutes, guardFn, onDenied)` — route guard operator; async-capable via `Observable<boolean>`
+- `withScrollReset()` — operator that scrolls to top on each route emission; pipe after `withGuard` so denied routes don't scroll
+- `lazy(loader)` — wraps a dynamic `import()` in a cold Observable (`defer + from`); enables route-based code splitting with `switchMap`
 - `destroy()` — removes global listeners (click interceptor, popstate); no-op in hash mode
 
 **`@rxjs-spa/dom`** (`packages/dom/src/public.ts`, `events.ts`, `observe.ts`)
 - Sources: `events`, `valueChanges`, `checkedChanges`, `textChanges`, `attrChanges`, `hasClass`
 - Sinks: `text`, `html`, `attr`, `prop`, `style`, `classToggle`, `dispatch`
+- `documentTitle(suffix?)` — sets `document.title` on each emission; optional suffix appended with ` | `
+- `metaContent(name)` — upserts a `<meta name="...">` tag in `<head>` with given content
 - `renderKeyedComponents` — per-item `BehaviorSubject` keeps internal streams alive across updates
 - `mount(root, setup)` — runs setup once, returns unified `Subscription`
 
