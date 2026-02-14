@@ -15,6 +15,7 @@ export default defineConfig({
       'packages/persist',
       'packages/router',
       'packages/store',
+      'packages/testing',
       'apps/playground',
       'apps/demo',
     ],

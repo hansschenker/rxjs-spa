@@ -12,6 +12,7 @@ import {
   renderKeyedComponents,
   renderKeyedList,
   renderList,
+  safeHtml,
   text,
 } from './public'
 
@@ -65,6 +66,41 @@ describe('@rxjs-spa/dom sinks', () => {
     const sub = prop(input, 'value')(s)
     s.next('hello')
     expect(input.value).toBe('hello')
+
+    sub.unsubscribe()
+  })
+
+  it('safeHtml() prevents script injection', () => {
+    const el = document.createElement('div')
+    const s = new Subject<string>()
+
+    const sub = safeHtml(el)(s)
+    s.next('<script>alert("xss")</script>')
+    expect(el.querySelector('script')).toBeNull()
+    expect(el.textContent).toBe('<script>alert("xss")</script>')
+
+    sub.unsubscribe()
+  })
+
+  it('safeHtml() prevents element injection', () => {
+    const el = document.createElement('div')
+    const s = new Subject<string>()
+
+    const sub = safeHtml(el)(s)
+    s.next(`<img onerror="alert('xss')" src=x>`)
+    expect(el.querySelector('img')).toBeNull()
+    expect(el.textContent).toBe(`<img onerror="alert('xss')" src=x>`)
+
+    sub.unsubscribe()
+  })
+
+  it('safeHtml() passes through plain text unchanged', () => {
+    const el = document.createElement('div')
+    const s = new Subject<string>()
+
+    const sub = safeHtml(el)(s)
+    s.next('Hello world')
+    expect(el.textContent).toBe('Hello world')
 
     sub.unsubscribe()
   })

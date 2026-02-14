@@ -21,11 +21,35 @@ export function text(el: Element) {
 /**
  * html(el)(value$)
  * Writes each incoming value to el.innerHTML.
+ *
+ * **Warning:** This writes raw HTML — never pipe user-controlled data through
+ * it. Use `safeHtml()` or `text()` for untrusted content.
  */
 export function html(el: Element) {
   return (value$: Observable<string>): Subscription =>
     value$.subscribe((v) => {
       ;(el as HTMLElement).innerHTML = v
+    })
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/**
+ * safeHtml(el)(value$)
+ * Escapes HTML entities before writing to el.innerHTML.
+ * Safe for rendering user-controlled content that may contain markup.
+ */
+export function safeHtml(el: Element) {
+  return (value$: Observable<string>): Subscription =>
+    value$.subscribe((v) => {
+      ;(el as HTMLElement).innerHTML = escapeHtml(v)
     })
 }
 

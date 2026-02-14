@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-`rxjs-spa` is an npm workspaces monorepo that is a full-featured SPA framework built entirely on **RxJS + TypeScript** — no third-party framework. It ships eight packages covering state management, HTTP, routing, DOM bindings, forms, persistence, error handling, and core utilities, plus a full-stack demo app and a VitePress docs site.
+`rxjs-spa` is an npm workspaces monorepo that is a full-featured SPA framework built entirely on **RxJS + TypeScript** — no third-party framework. It ships nine packages covering state management, HTTP, routing, DOM bindings, forms, persistence, error handling, testing utilities, and core utilities, plus a full-stack demo app and a VitePress docs site.
 
 ## Commands
 
@@ -48,6 +48,7 @@ rxjs-spa/
     persist/        @rxjs-spa/persist — localStorage/sessionStorage persistence for stores
     router/         @rxjs-spa/router  — hash-based router, :param matching, withGuard
     store/          @rxjs-spa/store   — createStore (MVU), ofType, combineStores
+    testing/        @rxjs-spa/testing — mock store, mock router, mock HTTP client, test helpers
     vitest.config.ts  Workspace-level Vitest multi-project runner
   docs/             VitePress documentation
 ```
@@ -114,7 +115,8 @@ store.actions$.pipe(ofType('FETCH'), switchMap(() => http.get(…))).subscribe(s
 
 **`@rxjs-spa/dom`** (`packages/dom/src/public.ts`, `events.ts`, `observe.ts`)
 - Sources: `events`, `valueChanges`, `checkedChanges`, `textChanges`, `attrChanges`, `hasClass`
-- Sinks: `text`, `html`, `attr`, `prop`, `style`, `classToggle`, `dispatch`
+- Sinks: `text`, `html`, `safeHtml`, `attr`, `prop`, `style`, `classToggle`, `dispatch`
+- `safeHtml(el)` — like `html()` but escapes HTML entities (`&`, `<`, `>`, `"`, `'`) before writing to `innerHTML`; use for user-controlled content
 - `documentTitle(suffix?)` — sets `document.title` on each emission; optional suffix appended with ` | `
 - `metaContent(name)` — upserts a `<meta name="...">` tag in `<head>` with given content
 - `renderKeyedComponents` — per-item `BehaviorSubject` keeps internal streams alive across updates
@@ -140,6 +142,13 @@ store.actions$.pipe(ofType('FETCH'), switchMap(() => http.get(…))).subscribe(s
 - `createPersistedStore(reducer, initial, key, opts?)` — drop-in `createStore` with localStorage hydration + persistence
 - `loadState`, `persistState`, `clearState` — lower-level persistence primitives
 - Supports `pick` (partial persistence), `version` (wipe on mismatch), custom `Storage` backends
+
+**`@rxjs-spa/testing`** (`packages/testing/src/public.ts`)
+- `collectFrom(obs$)` → `{ values: T[], subscription }` — subscribes and collects all emissions into an array; call `.subscription.unsubscribe()` when done
+- `createMockStore<S, A>(initialState)` → `MockStore<S, A>` — drop-in `Store` replacement with `setState()` (drives `state$` directly) and `dispatchedActions` (assertion array)
+- `createMockRouter<N>(initialRoute?)` → `MockRouter<N>` — drop-in `Router` replacement with `emit()` (push route changes) and `navigatedTo` (assertion array)
+- `createMockHttpClient()` → `MockHttpClient` — drop-in `HttpClient` replacement with `when*(url).respond(data)` / `.respondWith(obs$)` and `calls` (assertion array); unconfigured URLs throw
+- `triggerHashChange(path)` — sets `window.location.hash` and dispatches `hashchange` event (needed in jsdom)
 
 ### Error Handling Pattern (apps/demo/src/error-handler.ts)
 ```typescript
