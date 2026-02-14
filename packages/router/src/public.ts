@@ -1,4 +1,4 @@
-import { EMPTY, defer, from, fromEvent, Observable, OperatorFunction, of, Subject } from 'rxjs'
+import { EMPTY, Subscription, defer, from, fromEvent, Observable, OperatorFunction, of, Subject } from 'rxjs'
 import { catchError, distinctUntilChanged, filter, map, shareReplay, startWith, switchMap, tap } from 'rxjs/operators'
 
 // ---------------------------------------------------------------------------
@@ -77,6 +77,51 @@ export interface Router<N extends string> {
    * No-op in hash mode.
    */
   destroy(): void
+}
+
+export interface DataLoaderArgs {
+  params: RouteParams
+  query: QueryParams
+  path: string
+}
+
+export interface DataViewContext<N extends string, D> {
+  route: RouteMatch<N>
+  data: D
+  router: DataRouter<N, D>
+}
+
+export type DataRouteMount<N extends string, D> = (outlet: Element, context: DataViewContext<N, D>) => Subscription
+
+export type DataRouteLazyModule<N extends string, D> =
+  | DataRouteMount<N, D>
+  | { default: DataRouteMount<N, D> }
+  | { mount: DataRouteMount<N, D> }
+
+export interface DataRouteDefinition<N extends string, D> {
+  name: N
+  loader?: (args: DataLoaderArgs) => Observable<D> | Promise<D>
+  mount?: DataRouteMount<N, D>
+  lazyMount?: () => Promise<DataRouteLazyModule<N, D>>
+  pending?: (outlet: Element, route: RouteMatch<N>) => Subscription | void
+  error?: (outlet: Element, error: unknown, route: RouteMatch<N>) => Subscription | void
+}
+
+export type DataRoutes<N extends string, D> = Record<string, DataRouteDefinition<N, D>>
+
+export interface DataRouterOptions extends RouterOptions {
+  preload?: 'none' | 'all' | 'visible'
+}
+
+export type DataRouteState<N extends string, D> =
+  | { status: 'loading'; route: RouteMatch<N> }
+  | { status: 'success'; route: RouteMatch<N>; data: D }
+  | { status: 'error'; route: RouteMatch<N>; error: unknown }
+
+export interface DataRouter<N extends string, D> extends Router<N> {
+  routeState$: Observable<DataRouteState<N, D>>
+  mount(outlet: Element): Subscription
+  preload(): void
 }
 
 // ---------------------------------------------------------------------------
@@ -228,15 +273,15 @@ function parsePathname(): { path: string; query: QueryParams } {
  *     ),
  *   )
  */
-export function withGuard<N extends string>(
-  protectedRoutes: N[],
+export function withGuard<N extends string, P extends N>(
+  protectedRoutes: readonly P[],
   guardFn: () => Observable<boolean>,
   onDenied: () => void,
 ): OperatorFunction<RouteMatch<N>, RouteMatch<N>> {
   return (source: Observable<RouteMatch<N>>): Observable<RouteMatch<N>> =>
     source.pipe(
       switchMap((match) => {
-        if (!protectedRoutes.includes(match.name)) return of(match)
+        if (!protectedRoutes.includes(match.name as P)) return of(match)
         return guardFn().pipe(
           switchMap((allowed) => {
             if (allowed) return of(match)
@@ -387,4 +432,201 @@ export function createRouter<N extends string>(
       document.removeEventListener('click', onClick)
     },
   }
+}
+
+// ---------------------------------------------------------------------------
+// createDataRouter
+// ---------------------------------------------------------------------------
+
+function resolveLazyMount<N extends string, D>(
+  module: DataRouteLazyModule<N, D>,
+): DataRouteMount<N, D> {
+  if (typeof module === 'function') return module
+  if ('default' in module) return module.default
+  return module.mount
+}
+
+export function createDataRouter<N extends string, D>(
+  routes: DataRoutes<N, D>,
+  options?: DataRouterOptions,
+): DataRouter<N, D> {
+  const baseRoutes = Object.fromEntries(
+    Object.entries(routes).map(([path, def]) => [path, def.name]),
+  ) as RouteDefinition<N>
+
+  const routeByName = new Map<N, DataRouteDefinition<N, D>>()
+  const definitions = Object.entries(routes) as [string, DataRouteDefinition<N, D>][]
+  for (const def of Object.values(routes)) {
+    routeByName.set(def.name, def)
+  }
+
+  const router = createRouter(baseRoutes, options)
+
+  const mountCache = new Map<N, Promise<DataRouteMount<N, D>>>()
+
+  function getMount(def: DataRouteDefinition<N, D>): Promise<DataRouteMount<N, D>> {
+    const existing = mountCache.get(def.name)
+    if (existing) return existing
+
+    const promise = def.mount
+      ? Promise.resolve(def.mount)
+      : def.lazyMount
+        ? def.lazyMount().then(resolveLazyMount)
+        : Promise.reject(new Error(`Data route '${String(def.name)}' is missing mount/lazyMount`))
+
+    mountCache.set(def.name, promise)
+    return promise
+  }
+
+  function preloadPath(path: string) {
+    const matched = definitions.find(([pattern]) => matchPattern(pattern, path) !== null || pattern === '*')
+    if (!matched) return
+    const [, def] = matched
+    if (!def.lazyMount) return
+    void getMount(def).catch(() => {})
+  }
+
+  function preloadAll() {
+    for (const [, def] of definitions) {
+      if (!def.lazyMount) continue
+      void getMount(def).catch(() => {})
+    }
+  }
+
+  if ((options?.preload ?? 'none') === 'all') {
+    preloadAll()
+  }
+
+  const routeState$ = router.route$.pipe(
+    switchMap((route) => {
+      const def = routeByName.get(route.name)
+      if (!def) return EMPTY
+
+      if (!def.loader) {
+        return of({
+          status: 'success' as const,
+          route,
+          data: undefined as D,
+        })
+      }
+
+      return defer(() => from(def.loader!({
+        params: route.params,
+        query: route.query,
+        path: route.path,
+      }))).pipe(
+        map((data) => ({ status: 'success' as const, route, data })),
+        startWith({ status: 'loading' as const, route }),
+        catchError((error) => of({ status: 'error' as const, route, error })),
+      )
+    }),
+    shareReplay({ bufferSize: 1, refCount: false }),
+  )
+
+  let viewSub: Subscription | null = null
+
+  const dataRouter: DataRouter<N, D> = {
+    ...router,
+    routeState$,
+    preload() {
+      preloadAll()
+    },
+    mount(outlet: Element): Subscription {
+      let renderToken = 0
+
+      let observer: IntersectionObserver | null = null
+      const preloadMode = options?.preload ?? 'none'
+      if (preloadMode === 'visible') {
+        const scan = () => {
+          const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[]
+          for (const anchor of anchors) {
+            observer?.observe(anchor)
+          }
+        }
+
+        if (typeof IntersectionObserver !== 'undefined') {
+          observer = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+              if (!entry.isIntersecting) continue
+              const anchor = entry.target as HTMLAnchorElement
+              const href = anchor.getAttribute('href') ?? ''
+              let path = ''
+              if ((options?.mode ?? 'hash') === 'hash') {
+                path = parseHash(href).path
+              } else {
+                try {
+                  path = new URL(href, window.location.origin).pathname
+                } catch {
+                  continue
+                }
+              }
+              preloadPath(path)
+              observer?.unobserve(anchor)
+            }
+          })
+          scan()
+        } else {
+          preloadAll()
+        }
+      }
+
+      const sub = routeState$.subscribe((state) => {
+        renderToken += 1
+        const currentToken = renderToken
+
+        viewSub?.unsubscribe()
+        viewSub = null
+        outlet.innerHTML = ''
+
+        const def = routeByName.get(state.route.name)
+        if (!def) return
+
+        if (state.status === 'loading') {
+          const pendingSub = def.pending?.(outlet, state.route)
+          if (pendingSub) viewSub = pendingSub
+          return
+        }
+
+        if (state.status === 'error') {
+          const errorSub = def.error?.(outlet, state.error, state.route)
+          if (errorSub) viewSub = errorSub
+          return
+        }
+
+        const startMount = async () => {
+          const pendingSub = def.pending?.(outlet, state.route)
+          if (pendingSub) viewSub = pendingSub
+
+          try {
+            const mountFn = await getMount(def)
+            if (currentToken !== renderToken) return
+            viewSub?.unsubscribe()
+            viewSub = mountFn(outlet, {
+              route: state.route,
+              data: state.data,
+              router: dataRouter,
+            })
+          } catch (error) {
+            if (currentToken !== renderToken) return
+            viewSub?.unsubscribe()
+            viewSub = null
+            outlet.innerHTML = ''
+            const errorSub = def.error?.(outlet, error, state.route)
+            if (errorSub) viewSub = errorSub
+          }
+        }
+
+        void startMount()
+      })
+
+      return new Subscription(() => {
+        sub.unsubscribe()
+        viewSub?.unsubscribe()
+        viewSub = null
+        observer?.disconnect()
+      })
+    },
+  }
+
+  return dataRouter
 }
