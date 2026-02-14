@@ -99,13 +99,16 @@ store.actions$.pipe(ofType('FETCH'), switchMap(() => http.get(…))).subscribe(s
 - `toRemoteData()` — operator that wraps any Observable into a `RemoteData<T>` stream
 
 **`@rxjs-spa/router`** (`packages/router/src/public.ts`)
-- `createRouter<N>(routes)` → `{ route$, navigate, link }`
-- Hash-based (`window.location.hash` + `fromEvent(window, 'hashchange')`)
+- `createRouter<N>(routes, options?)` → `{ route$, navigate, link, destroy }`
+- `RouterOptions` — `{ mode?: 'hash' | 'history' }` (default: `'hash'`)
+- Hash mode: `window.location.hash` + `hashchange` — URLs like `#/users/42`
+- History mode: `history.pushState` + `popstate` — clean URLs like `/users/42`; auto-intercepts `<a>` clicks (same-origin, no modifier keys, no `target`/`download`); requires server fallback to `index.html`
 - `:param` segment matching; `distinctUntilChanged` deduplicates same path+query
 - `RouteMatch<N>` includes `name`, `params`, `query`, and `path`
-- Query params: `#/users?page=2&sort=name` → `{ query: { page: '2', sort: 'name' } }` — URI-decoded, emits on query-only changes
+- Query params: `?page=2&sort=name` → `{ query: { page: '2', sort: 'name' } }` — URI-decoded, emits on query-only changes
 - Wildcard route: `'*': 'not-found'` — catch-all for unrecognised paths, always checked last
 - `withGuard(protectedRoutes, guardFn, onDenied)` — route guard operator; async-capable via `Observable<boolean>`
+- `destroy()` — removes global listeners (click interceptor, popstate); no-op in hash mode
 
 **`@rxjs-spa/dom`** (`packages/dom/src/public.ts`, `events.ts`, `observe.ts`)
 - Sources: `events`, `valueChanges`, `checkedChanges`, `textChanges`, `attrChanges`, `hasClass`

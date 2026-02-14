@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { of, throwError } from 'rxjs'
 import { createRouter, withGuard } from './public'
-import type { RouteMatch } from './public'
+import type { RouteMatch, Router } from './public'
 
 // jsdom doesn't fire real hashchange events when you set location.hash,
 // so we trigger it manually in each test.
@@ -365,6 +365,435 @@ describe('withGuard', () => {
     setHash('#/')
     setHash('#/users')
     expect(seen).toEqual(['home', 'home', 'users'])
+    sub.unsubscribe()
+  })
+})
+
+// ===========================================================================
+// History mode
+// ===========================================================================
+
+const HISTORY_ROUTES = {
+  '/': 'home',
+  '/users': 'users',
+  '/users/:id': 'user-detail',
+  '/users/:id/posts/:postId': 'user-post',
+} as const
+
+const HISTORY_ROUTES_WILDCARD = {
+  '/': 'home',
+  '/users': 'users',
+  '/users/:id': 'user-detail',
+  '*': 'not-found',
+} as const
+
+describe('createRouter — history mode: route matching', () => {
+  let router: Router<string>
+
+  afterEach(() => {
+    router?.destroy()
+    history.replaceState(null, '', '/')
+  })
+
+  it('matches the root route', () => {
+    history.replaceState(null, '', '/')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const seen: string[] = []
+    const sub = router.route$.subscribe(r => seen.push(r.name))
+    expect(seen).toEqual(['home'])
+    sub.unsubscribe()
+  })
+
+  it('matches a static path', () => {
+    history.replaceState(null, '', '/users')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const seen: string[] = []
+    const sub = router.route$.subscribe(r => seen.push(r.name))
+    expect(seen).toEqual(['users'])
+    sub.unsubscribe()
+  })
+
+  it('extracts a single param', () => {
+    history.replaceState(null, '', '/users/42')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const params: Record<string, string>[] = []
+    const sub = router.route$.subscribe(r => params.push(r.params))
+    expect(params[0]).toEqual({ id: '42' })
+    sub.unsubscribe()
+  })
+
+  it('extracts multiple params', () => {
+    history.replaceState(null, '', '/users/7/posts/99')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const params: Record<string, string>[] = []
+    const sub = router.route$.subscribe(r => params.push(r.params))
+    expect(params[0]).toEqual({ id: '7', postId: '99' })
+    sub.unsubscribe()
+  })
+
+  it('does not emit for unrecognised paths when no wildcard defined', () => {
+    history.replaceState(null, '', '/not-a-real-route')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const seen: string[] = []
+    const sub = router.route$.subscribe(r => seen.push(r.name))
+    expect(seen).toEqual([])
+    sub.unsubscribe()
+  })
+})
+
+describe('createRouter — history mode: wildcard route', () => {
+  let router: Router<string>
+
+  afterEach(() => {
+    router?.destroy()
+    history.replaceState(null, '', '/')
+  })
+
+  it('matches wildcard for unrecognised paths', () => {
+    history.replaceState(null, '', '/some/unknown/path')
+    router = createRouter(HISTORY_ROUTES_WILDCARD, { mode: 'history' })
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    expect(seen).toHaveLength(1)
+    expect(seen[0].name).toBe('not-found')
+    expect(seen[0].params).toEqual({})
+    expect(seen[0].path).toBe('/some/unknown/path')
+    sub.unsubscribe()
+  })
+
+  it('prefers specific routes over wildcard', () => {
+    history.replaceState(null, '', '/users')
+    router = createRouter(HISTORY_ROUTES_WILDCARD, { mode: 'history' })
+    const seen: string[] = []
+    const sub = router.route$.subscribe(r => seen.push(r.name))
+    expect(seen).toEqual(['users'])
+    sub.unsubscribe()
+  })
+})
+
+describe('createRouter — history mode: query params', () => {
+  let router: Router<string>
+
+  afterEach(() => {
+    router?.destroy()
+    history.replaceState(null, '', '/')
+  })
+
+  it('parses query string into query object', () => {
+    history.replaceState(null, '', '/users?page=2&sort=name')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    expect(seen).toHaveLength(1)
+    expect(seen[0].name).toBe('users')
+    expect(seen[0].query).toEqual({ page: '2', sort: 'name' })
+    expect(seen[0].path).toBe('/users')
+    sub.unsubscribe()
+  })
+
+  it('provides empty query object when no query string', () => {
+    history.replaceState(null, '', '/users')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    expect(seen[0].query).toEqual({})
+    sub.unsubscribe()
+  })
+
+  it('decodes URI-encoded query values', () => {
+    history.replaceState(null, '', '/?msg=hello%20world&tag=a%26b')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    expect(seen[0].query).toEqual({ msg: 'hello world', tag: 'a&b' })
+    sub.unsubscribe()
+  })
+
+  it('works with params and query together', () => {
+    history.replaceState(null, '', '/users/42?tab=posts')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    expect(seen[0].name).toBe('user-detail')
+    expect(seen[0].params).toEqual({ id: '42' })
+    expect(seen[0].query).toEqual({ tab: 'posts' })
+    sub.unsubscribe()
+  })
+})
+
+describe('createRouter — history mode: navigate()', () => {
+  let router: Router<string>
+
+  afterEach(() => {
+    router?.destroy()
+    history.replaceState(null, '', '/')
+  })
+
+  it('navigate() pushes state and emits the new route', () => {
+    history.replaceState(null, '', '/')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const names: string[] = []
+    const sub = router.route$.subscribe(r => names.push(r.name))
+
+    router.navigate('/users')
+    router.navigate('/users/5')
+
+    expect(names).toEqual(['home', 'users', 'user-detail'])
+    sub.unsubscribe()
+  })
+
+  it('does not re-emit when navigating to the same path', () => {
+    history.replaceState(null, '', '/users')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const names: string[] = []
+    const sub = router.route$.subscribe(r => names.push(r.name))
+
+    router.navigate('/users') // same — should be deduplicated
+    router.navigate('/users/1') // different — should emit
+
+    expect(names).toEqual(['users', 'user-detail'])
+    sub.unsubscribe()
+  })
+
+  it('emits when query changes via navigate', () => {
+    history.replaceState(null, '', '/users?page=1')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+
+    router.navigate('/users?page=2')
+
+    expect(seen).toHaveLength(2)
+    expect(seen[0].query).toEqual({ page: '1' })
+    expect(seen[1].query).toEqual({ page: '2' })
+    sub.unsubscribe()
+  })
+
+  it('late subscriber receives the current route immediately', () => {
+    history.replaceState(null, '', '/users/99')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+
+    const sub1 = router.route$.subscribe(() => {})
+
+    const late: string[] = []
+    const sub2 = router.route$.subscribe(r => late.push(r.name))
+
+    expect(late).toEqual(['user-detail'])
+    sub1.unsubscribe()
+    sub2.unsubscribe()
+  })
+})
+
+describe('createRouter — history mode: popstate (back/forward)', () => {
+  let router: Router<string>
+
+  afterEach(() => {
+    router?.destroy()
+    history.replaceState(null, '', '/')
+  })
+
+  it('emits on popstate events (browser back/forward)', () => {
+    history.replaceState(null, '', '/')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const names: string[] = []
+    const sub = router.route$.subscribe(r => names.push(r.name))
+
+    // Simulate browser back to /users
+    history.replaceState(null, '', '/users')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+
+    expect(names).toEqual(['home', 'users'])
+    sub.unsubscribe()
+  })
+})
+
+describe('createRouter — history mode: link()', () => {
+  let router: Router<string>
+
+  afterEach(() => {
+    router?.destroy()
+    history.replaceState(null, '', '/')
+  })
+
+  it('returns clean paths without hash', () => {
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    expect(router.link('/users/42')).toBe('/users/42')
+    expect(router.link('/')).toBe('/')
+  })
+
+  it('prepends / if missing', () => {
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    expect(router.link('users')).toBe('/users')
+  })
+})
+
+describe('createRouter — history mode: click interception', () => {
+  let router: Router<string>
+
+  afterEach(() => {
+    router?.destroy()
+    history.replaceState(null, '', '/')
+  })
+
+  it('intercepts <a> clicks and navigates without page reload', () => {
+    history.replaceState(null, '', '/')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const names: string[] = []
+    const sub = router.route$.subscribe(r => names.push(r.name))
+
+    const link = document.createElement('a')
+    link.href = '/users'
+    document.body.appendChild(link)
+
+    link.click()
+
+    expect(names).toEqual(['home', 'users'])
+    expect(window.location.pathname).toBe('/users')
+    document.body.removeChild(link)
+    sub.unsubscribe()
+  })
+
+  it('does not intercept clicks with modifier keys', () => {
+    history.replaceState(null, '', '/')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const names: string[] = []
+    const sub = router.route$.subscribe(r => names.push(r.name))
+
+    const link = document.createElement('a')
+    link.href = '/users'
+    document.body.appendChild(link)
+
+    // Simulate ctrl+click — should not be intercepted
+    const ctrlClick = new MouseEvent('click', { bubbles: true, ctrlKey: true })
+    link.dispatchEvent(ctrlClick)
+
+    expect(names).toEqual(['home']) // no navigation
+    document.body.removeChild(link)
+    sub.unsubscribe()
+  })
+
+  it('does not intercept links with target="_blank"', () => {
+    history.replaceState(null, '', '/')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const names: string[] = []
+    const sub = router.route$.subscribe(r => names.push(r.name))
+
+    const link = document.createElement('a')
+    link.href = '/users'
+    link.target = '_blank'
+    document.body.appendChild(link)
+
+    link.click()
+
+    expect(names).toEqual(['home']) // no navigation
+    document.body.removeChild(link)
+    sub.unsubscribe()
+  })
+
+  it('does not intercept links with download attribute', () => {
+    history.replaceState(null, '', '/')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const names: string[] = []
+    const sub = router.route$.subscribe(r => names.push(r.name))
+
+    const link = document.createElement('a')
+    link.href = '/users'
+    link.setAttribute('download', '')
+    document.body.appendChild(link)
+
+    link.click()
+
+    expect(names).toEqual(['home']) // no navigation
+    document.body.removeChild(link)
+    sub.unsubscribe()
+  })
+
+  it('intercepts clicks on child elements inside <a>', () => {
+    history.replaceState(null, '', '/')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const names: string[] = []
+    const sub = router.route$.subscribe(r => names.push(r.name))
+
+    const link = document.createElement('a')
+    link.href = '/users'
+    const span = document.createElement('span')
+    span.textContent = 'Users'
+    link.appendChild(span)
+    document.body.appendChild(link)
+
+    span.click()
+
+    expect(names).toEqual(['home', 'users'])
+    document.body.removeChild(link)
+    sub.unsubscribe()
+  })
+})
+
+describe('createRouter — history mode: destroy()', () => {
+  it('removes click interceptor and popstate listener', () => {
+    history.replaceState(null, '', '/')
+    const router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const names: string[] = []
+    const sub = router.route$.subscribe(r => names.push(r.name))
+
+    router.destroy()
+
+    // Click should NOT be intercepted after destroy
+    const link = document.createElement('a')
+    link.href = '/users'
+    document.body.appendChild(link)
+    link.click()
+
+    // Popstate should NOT trigger after destroy
+    history.replaceState(null, '', '/users')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+
+    expect(names).toEqual(['home']) // no new emissions
+    document.body.removeChild(link)
+    sub.unsubscribe()
+    history.replaceState(null, '', '/')
+  })
+})
+
+describe('createRouter — history mode: withGuard', () => {
+  let router: Router<string>
+
+  afterEach(() => {
+    router?.destroy()
+    history.replaceState(null, '', '/')
+  })
+
+  it('guards work with history mode', () => {
+    history.replaceState(null, '', '/')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const denied = vi.fn()
+    const seen: string[] = []
+
+    const sub = router.route$.pipe(
+      withGuard(['users', 'user-detail'], () => of(false), denied),
+    ).subscribe(r => seen.push(r.name))
+
+    router.navigate('/users')
+
+    expect(seen).toEqual(['home'])
+    expect(denied).toHaveBeenCalledOnce()
+    sub.unsubscribe()
+  })
+
+  it('allows navigation when guard returns true', () => {
+    history.replaceState(null, '', '/')
+    router = createRouter(HISTORY_ROUTES, { mode: 'history' })
+    const denied = vi.fn()
+    const seen: string[] = []
+
+    const sub = router.route$.pipe(
+      withGuard(['users'], () => of(true), denied),
+    ).subscribe(r => seen.push(r.name))
+
+    router.navigate('/users')
+
+    expect(seen).toEqual(['home', 'users'])
+    expect(denied).not.toHaveBeenCalled()
     sub.unsubscribe()
   })
 })

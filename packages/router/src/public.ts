@@ -1,4 +1,4 @@
-import { EMPTY, fromEvent, Observable, OperatorFunction, of } from 'rxjs'
+import { EMPTY, fromEvent, Observable, OperatorFunction, of, Subject } from 'rxjs'
 import { catchError, distinctUntilChanged, filter, map, shareReplay, startWith, switchMap } from 'rxjs/operators'
 
 // ---------------------------------------------------------------------------
@@ -11,6 +11,20 @@ export type RouteParams = Record<string, string>
 /** Query string params (e.g. `?page=2&sort=name`). */
 export type QueryParams = Record<string, string>
 
+/** Router navigation mode. */
+export type RouterMode = 'hash' | 'history'
+
+/** Options for `createRouter`. */
+export interface RouterOptions {
+  /**
+   * Navigation mode.
+   * - `'hash'` (default) — uses `window.location.hash` + `hashchange`.
+   * - `'history'` — uses `history.pushState` + `popstate` for clean URLs.
+   *   Requires server-side fallback to `index.html` for all routes.
+   */
+  mode?: RouterMode
+}
+
 /** A matched route. */
 export interface RouteMatch<N extends string = string> {
   /** The name you gave this route in `createRouter`. */
@@ -19,7 +33,7 @@ export interface RouteMatch<N extends string = string> {
   params: RouteParams
   /** Parsed query string params (e.g. `{ page: '2' }` for `?page=2`). */
   query: QueryParams
-  /** The raw path portion after the `#`, without query string (e.g. `/users/42`). */
+  /** The matched path without query string (e.g. `/users/42`). */
   path: string
 }
 
@@ -41,22 +55,28 @@ export interface Router<N extends string> {
    * subscribers, so you can subscribe at any time and immediately know the
    * active route.
    *
-   * Only emits when the route actually changes (path check).
+   * Only emits when the route actually changes (path + query check).
    */
   route$: Observable<RouteMatch<N>>
   /**
-   * Navigate to a path. Writes `#<path>` to `window.location.hash`,
-   * which triggers a `hashchange` event and updates `route$`.
+   * Navigate to a path. In hash mode writes to `window.location.hash`;
+   * in history mode calls `history.pushState`.
    *
    * @example router.navigate('/users/42')
    */
   navigate(path: string): void
   /**
-   * Build a hash href string suitable for `<a href="...">`.
+   * Build an href string suitable for `<a href="...">`.
    *
-   * @example router.link('/users/42')  // → '#/users/42'
+   * - Hash mode:    `router.link('/users/42')` → `'#/users/42'`
+   * - History mode: `router.link('/users/42')` → `'/users/42'`
    */
   link(path: string): string
+  /**
+   * Clean up global event listeners (click interceptor, popstate).
+   * No-op in hash mode.
+   */
+  destroy(): void
 }
 
 // ---------------------------------------------------------------------------
@@ -111,18 +131,12 @@ function matchRoutes<N extends string>(
   return null
 }
 
-function parseHash(hash: string): { path: string; query: QueryParams } {
-  const raw = hash.replace(/^#/, '') || '/'
-  const full = raw.startsWith('/') ? raw : '/' + raw
-
-  const qIndex = full.indexOf('?')
-  if (qIndex === -1) return { path: full, query: {} }
-
-  const path = full.slice(0, qIndex) || '/'
+function parseQuery(search: string): QueryParams {
   const query: QueryParams = {}
-  const search = full.slice(qIndex + 1)
+  const raw = search.startsWith('?') ? search.slice(1) : search
+  if (!raw) return query
 
-  for (const pair of search.split('&')) {
+  for (const pair of raw.split('&')) {
     if (!pair) continue
     const eqIndex = pair.indexOf('=')
     if (eqIndex === -1) {
@@ -132,7 +146,25 @@ function parseHash(hash: string): { path: string; query: QueryParams } {
     }
   }
 
-  return { path, query }
+  return query
+}
+
+function parseHash(hash: string): { path: string; query: QueryParams } {
+  const raw = hash.replace(/^#/, '') || '/'
+  const full = raw.startsWith('/') ? raw : '/' + raw
+
+  const qIndex = full.indexOf('?')
+  if (qIndex === -1) return { path: full, query: {} }
+
+  const path = full.slice(0, qIndex) || '/'
+  return { path, query: parseQuery(full.slice(qIndex + 1)) }
+}
+
+function parsePathname(): { path: string; query: QueryParams } {
+  return {
+    path: window.location.pathname || '/',
+    query: parseQuery(window.location.search),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -140,27 +172,36 @@ function parseHash(hash: string): { path: string; query: QueryParams } {
 // ---------------------------------------------------------------------------
 
 /**
- * createRouter<N>(routes)
+ * createRouter<N>(routes, options?)
  *
- * Creates a hash-based router backed by `window.location.hash` + `hashchange`.
+ * Creates a client-side router.
  *
- * - Subscribing to `route$` starts listening to hash changes immediately.
+ * - `mode: 'hash'` (default) — backed by `window.location.hash` + `hashchange`.
+ * - `mode: 'history'` — backed by `history.pushState` + `popstate` with
+ *   automatic `<a>` click interception. Requires the server to serve
+ *   `index.html` for all routes (Vite dev server does this by default).
+ *
+ * In both modes:
+ * - Subscribing to `route$` starts listening immediately.
  * - The stream replays the current route to late subscribers (shareReplay).
  * - Unrecognised paths are skipped unless a `'*'` wildcard route is defined.
  *
  * @example
+ *   // Hash mode (default)
  *   const router = createRouter({
  *     '/':          'home',
  *     '/users':     'users',
  *     '/users/:id': 'user-detail',
- *     '*':          'not-found',   // catch-all for unrecognised paths
+ *     '*':          'not-found',
  *   })
  *
- *   router.route$.subscribe(({ name, params }) => {
- *     console.log('route:', name, params)
- *   })
- *
- *   router.navigate('/users/42')
+ *   // History mode — clean URLs
+ *   const router = createRouter({
+ *     '/':          'home',
+ *     '/users':     'users',
+ *     '/users/:id': 'user-detail',
+ *     '*':          'not-found',
+ *   }, { mode: 'history' })
  */
 // ---------------------------------------------------------------------------
 // withGuard — route guard operator
@@ -211,10 +252,52 @@ export function withGuard<N extends string>(
     )
 }
 
-export function createRouter<N extends string>(routes: RouteDefinition<N>): Router<N> {
-  const route$ = fromEvent(window, 'hashchange').pipe(
-    startWith(null), // capture initial URL on first subscribe
-    map(() => parseHash(window.location.hash)),
+export function createRouter<N extends string>(
+  routes: RouteDefinition<N>,
+  options?: RouterOptions,
+): Router<N> {
+  const mode = options?.mode ?? 'hash'
+
+  if (mode === 'hash') {
+    const route$ = fromEvent(window, 'hashchange').pipe(
+      startWith(null),
+      map(() => parseHash(window.location.hash)),
+      map(({ path, query }) => matchRoutes(path, query, routes)),
+      filter((r): r is RouteMatch<N> => r !== null),
+      distinctUntilChanged((a, b) =>
+        a.path === b.path && JSON.stringify(a.query) === JSON.stringify(b.query),
+      ),
+      shareReplay({ bufferSize: 1, refCount: false }),
+    )
+
+    return {
+      route$,
+      navigate(path: string) {
+        window.location.hash = path.startsWith('/') ? path : '/' + path
+      },
+      link(path: string): string {
+        return '#' + (path.startsWith('/') ? path : '/' + path)
+      },
+      destroy() {},
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // History mode — pushState + popstate + click interception
+  // -------------------------------------------------------------------------
+
+  // pushState does NOT fire popstate, so we use a Subject as the single
+  // notification channel for both programmatic navigation and browser
+  // back/forward.
+  const pathChange$ = new Subject<void>()
+
+  const popstateSub = fromEvent(window, 'popstate').subscribe(() =>
+    pathChange$.next(),
+  )
+
+  const route$ = pathChange$.pipe(
+    startWith(undefined),
+    map(() => parsePathname()),
     map(({ path, query }) => matchRoutes(path, query, routes)),
     filter((r): r is RouteMatch<N> => r !== null),
     distinctUntilChanged((a, b) =>
@@ -223,13 +306,42 @@ export function createRouter<N extends string>(routes: RouteDefinition<N>): Rout
     shareReplay({ bufferSize: 1, refCount: false }),
   )
 
+  // Delegated click handler — intercepts <a> clicks so they don't cause
+  // full-page reloads. Checks: left-click only, no modifier keys, same
+  // origin, no target/_blank, no download attribute.
+  function onClick(e: MouseEvent) {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+
+    let el = e.target as HTMLElement | null
+    while (el && el.tagName !== 'A') el = el.parentElement
+    if (!el) return
+
+    const anchor = el as HTMLAnchorElement
+    if (anchor.target && anchor.target !== '_self') return
+    if (anchor.hasAttribute('download')) return
+    if (anchor.origin !== window.location.origin) return
+
+    e.preventDefault()
+    const path = anchor.pathname + anchor.search
+    history.pushState(null, '', path)
+    pathChange$.next()
+  }
+
+  document.addEventListener('click', onClick)
+
   return {
     route$,
     navigate(path: string) {
-      window.location.hash = path.startsWith('/') ? path : '/' + path
+      const fullPath = path.startsWith('/') ? path : '/' + path
+      history.pushState(null, '', fullPath)
+      pathChange$.next()
     },
     link(path: string): string {
-      return '#' + (path.startsWith('/') ? path : '/' + path)
+      return path.startsWith('/') ? path : '/' + path
+    },
+    destroy() {
+      popstateSub.unsubscribe()
+      document.removeEventListener('click', onClick)
     },
   }
 }
