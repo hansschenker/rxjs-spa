@@ -79,31 +79,133 @@ function request<T>(config: AjaxConfig): Observable<T> {
 }
 
 // ---------------------------------------------------------------------------
-// http — the public API surface
+// Types
 // ---------------------------------------------------------------------------
 
 export interface HttpRequestOptions
   extends Omit<AjaxConfig, 'url' | 'method' | 'body'> {}
 
+export interface HttpClient {
+  get<T>(url: string, options?: HttpRequestOptions): Observable<T>
+  post<T>(url: string, body?: unknown, options?: HttpRequestOptions): Observable<T>
+  put<T>(url: string, body?: unknown, options?: HttpRequestOptions): Observable<T>
+  patch<T>(url: string, body?: unknown, options?: HttpRequestOptions): Observable<T>
+  delete<T>(url: string, options?: HttpRequestOptions): Observable<T>
+}
+
+// ---------------------------------------------------------------------------
+// Interceptors
+// ---------------------------------------------------------------------------
+
 /**
- * Thin, cancellable HTTP client built on rxjs/ajax.
+ * An interceptor can modify the outgoing request config and/or the
+ * incoming response Observable.
+ *
+ * - `request(config)` — called before the XHR is sent. Return a modified config.
+ * - `response(source$)` — called after the XHR Observable is created.
+ *   Return a transformed Observable (e.g. for retry, logging, error mapping).
+ *
+ * Both methods are optional.
+ */
+export interface HttpInterceptor {
+  request?(config: AjaxConfig): AjaxConfig
+  response?<T>(source$: Observable<T>): Observable<T>
+}
+
+export interface HttpClientConfig {
+  /** Base URL prepended to all relative paths. */
+  baseUrl?: string
+  /** Interceptors applied in order: request phase left-to-right, response phase right-to-left. */
+  interceptors?: HttpInterceptor[]
+}
+
+// ---------------------------------------------------------------------------
+// createHttpClient
+// ---------------------------------------------------------------------------
+
+/**
+ * createHttpClient(config?)
+ *
+ * Creates an HTTP client with optional base URL and interceptors.
+ * Returns the same `HttpClient` interface as the default `http` export.
+ *
+ * Interceptor execution order:
+ *   Request phase:  interceptor[0].request → interceptor[1].request → … → XHR
+ *   Response phase: … → interceptor[1].response → interceptor[0].response → subscriber
+ *
+ * @example
+ *   const api = createHttpClient({
+ *     baseUrl: 'https://api.example.com',
+ *     interceptors: [
+ *       { request: (c) => ({ ...c, headers: { ...c.headers, Authorization: `Bearer ${token}` } }) },
+ *       { response: (res$) => res$.pipe(retry(2)) },
+ *     ],
+ *   })
+ *
+ *   api.get<User[]>('/users').subscribe(console.log) // → GET https://api.example.com/users
+ */
+export function createHttpClient(config?: HttpClientConfig): HttpClient {
+  const baseUrl = config?.baseUrl?.replace(/\/+$/, '') ?? ''
+  const interceptors = config?.interceptors ?? []
+
+  function interceptedRequest<T>(ajaxConfig: AjaxConfig): Observable<T> {
+    // Apply request interceptors left-to-right
+    let cfg = ajaxConfig
+    for (const i of interceptors) {
+      if (i.request) cfg = i.request(cfg)
+    }
+
+    // Prepend base URL to relative paths
+    if (baseUrl && cfg.url && !cfg.url.startsWith('http://') && !cfg.url.startsWith('https://')) {
+      cfg = { ...cfg, url: baseUrl + (cfg.url.startsWith('/') ? cfg.url : '/' + cfg.url) }
+    }
+
+    let result$: Observable<T> = request<T>(cfg)
+
+    // Apply response interceptors right-to-left (reverse order)
+    for (let idx = interceptors.length - 1; idx >= 0; idx--) {
+      const i = interceptors[idx]
+      if (i.response) result$ = i.response<T>(result$)
+    }
+
+    return result$
+  }
+
+  return {
+    get<T>(url: string, options?: HttpRequestOptions): Observable<T> {
+      return interceptedRequest<T>({ ...options, url, method: 'GET' })
+    },
+    post<T>(url: string, body?: unknown, options?: HttpRequestOptions): Observable<T> {
+      return interceptedRequest<T>({ ...options, url, method: 'POST', body })
+    },
+    put<T>(url: string, body?: unknown, options?: HttpRequestOptions): Observable<T> {
+      return interceptedRequest<T>({ ...options, url, method: 'PUT', body })
+    },
+    patch<T>(url: string, body?: unknown, options?: HttpRequestOptions): Observable<T> {
+      return interceptedRequest<T>({ ...options, url, method: 'PATCH', body })
+    },
+    delete<T>(url: string, options?: HttpRequestOptions): Observable<T> {
+      return interceptedRequest<T>({ ...options, url, method: 'DELETE' })
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// http — default client (no interceptors, no base URL)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default HTTP client with no interceptors or base URL.
+ * Use `createHttpClient(config)` for customisation.
  *
  * Every method returns a cold Observable — nothing is sent until you subscribe,
  * and unsubscribing cancels the in-flight XHR.
  *
  * @example
- *   // Basic GET
  *   http.get<User[]>('/api/users').subscribe(console.log)
- *
- *   // With switchMap for cancellation
- *   search$.pipe(
- *     switchMap(q => http.get<User[]>(`/api/users?q=${q}`))
- *   ).subscribe(renderUsers)
- *
- *   // Wrapped in RemoteData
  *   http.get<User[]>('/api/users').pipe(toRemoteData())
  */
-export const http = {
+export const http: HttpClient = {
   get<T>(url: string, options?: HttpRequestOptions): Observable<T> {
     return request<T>({ ...options, url, method: 'GET' })
   },
