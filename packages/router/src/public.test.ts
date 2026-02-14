@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { of, throwError } from 'rxjs'
-import { createRouter, withGuard, withScrollReset, lazy } from './public'
+import { Observable, Subscription, of, throwError } from 'rxjs'
+import { createDataRouter, createRouter, withGuard, withScrollReset, lazy } from './public'
 import type { RouteMatch, Router } from './public'
 
 // jsdom doesn't fire real hashchange events when you set location.hash,
@@ -271,6 +271,145 @@ describe('createRouter — link()', () => {
     expect(router.link('/users/42')).toBe('#/users/42')
     expect(router.link('/')).toBe('#/')
   })
+})
+
+describe('createDataRouter', () => {
+  beforeEach(() => {
+    window.location.hash = '#/'
+  })
+
+  it('emits loading then success for routes with loaders', () => {
+    window.location.hash = '#/users'
+    const router = createDataRouter({
+      '/': {
+        name: 'home',
+        mount: () => new Subscription(),
+      },
+      '/users': {
+        name: 'users',
+        loader: () => of([{ id: 1 }]),
+        mount: () => new Subscription(),
+      },
+    } as const)
+
+    const states: string[] = []
+    const sub = router.routeState$.subscribe((state) => states.push(state.status))
+
+    expect(states).toEqual(['loading', 'success'])
+    sub.unsubscribe()
+  })
+
+  it('cancels stale loaders when navigating quickly', () => {
+    window.location.hash = '#/users/1'
+    const cancelled: string[] = []
+
+    const router = createDataRouter({
+      '/users/:id': {
+        name: 'user',
+        loader: ({ params }) =>
+          new Observable<string>(() => () => cancelled.push(params.id)),
+        mount: () => new Subscription(),
+      },
+    } as const)
+
+    const sub = router.routeState$.subscribe(() => {})
+    setHash('#/users/2')
+
+    expect(cancelled).toEqual(['1'])
+    sub.unsubscribe()
+  })
+
+  it('mount(outlet) renders pending, success, and error states', async () => {
+    vi.useFakeTimers()
+    window.location.hash = '#/users'
+    const outlet = document.createElement('div')
+
+    const mounted: string[] = []
+    const router = createDataRouter({
+      '/users': {
+        name: 'users',
+        loader: () => new Promise<string>((resolve) => setTimeout(() => resolve('Ada'), 10)),
+        pending: (el) => {
+          el.textContent = 'Loading users...'
+        },
+        mount: (el, ctx) => {
+          el.textContent = `User: ${ctx.data}`
+          mounted.push(String(ctx.data))
+          return new Subscription()
+        },
+      },
+      '/broken': {
+        name: 'broken',
+        loader: () => throwError(() => new Error('boom')),
+        error: (el, err) => {
+          el.textContent = `Error: ${(err as Error).message}`
+        },
+        mount: () => new Subscription(),
+      },
+    } as const)
+
+    const sub = router.mount(outlet)
+    expect(outlet.textContent).toBe('Loading users...')
+
+    await vi.advanceTimersByTimeAsync(10)
+    expect(mounted).toEqual(['Ada'])
+    expect(outlet.textContent).toBe('User: Ada')
+
+    setHash('#/broken')
+    expect(outlet.textContent).toBe('Error: boom')
+
+    sub.unsubscribe()
+    vi.useRealTimers()
+  })
+
+  it('supports lazyMount and mounts resolved view modules', async () => {
+    window.location.hash = '#/lazy'
+    const outlet = document.createElement('div')
+
+    const router = createDataRouter({
+      '/lazy': {
+        name: 'lazy',
+        lazyMount: async () => ({
+          default: (el) => {
+            el.textContent = 'Lazy view mounted'
+            return new Subscription()
+          },
+        }),
+      },
+    } as const)
+
+    const sub = router.mount(outlet)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(outlet.textContent).toBe('Lazy view mounted')
+    sub.unsubscribe()
+  })
+
+  it('preloads all lazy routes when preload: "all" is enabled', async () => {
+    window.location.hash = '#/'
+    const calls: string[] = []
+
+    createDataRouter({
+      '/': {
+        name: 'home',
+        mount: () => new Subscription(),
+      },
+      '/lazy': {
+        name: 'lazy',
+        lazyMount: async () => {
+          calls.push('lazy')
+          return {
+            default: () => new Subscription(),
+          }
+        },
+      },
+    } as const, { preload: 'all' })
+
+    await Promise.resolve()
+    expect(calls).toEqual(['lazy'])
+  })
+
 })
 
 // ---------------------------------------------------------------------------

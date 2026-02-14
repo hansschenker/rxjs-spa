@@ -24,6 +24,51 @@ Returns a `Router<N>`:
 | `navigate(path)` | Imperatively navigate: sets `window.location.hash`. |
 | `link(path)` | Returns a `#`-prefixed href string for use in `<a href="…">`. |
 
+## createDataRouter (Phase 1 + Phase 2)
+
+```ts
+import { createDataRouter } from '@rxjs-spa/router'
+```
+
+Adds route-level loaders and an outlet mount helper.
+
+```ts
+const router = createDataRouter({
+  '/users': {
+    name: 'users',
+    loader: () => http.get<User[]>('/api/users'),
+    lazyMount: () => import('./views/users.view').then(m => m.usersView),
+    pending: (outlet) => { outlet.textContent = 'Loading…' },
+    error: (outlet, err) => { outlet.textContent = String(err) },
+  },
+}, { preload: 'visible' })
+
+router.mount(document.querySelector('#outlet')!)
+```
+
+`DataRouter<N, D>` extends `Router<N>` with:
+
+| Member | Description |
+|--------|-------------|
+| `routeState$` | `Observable<DataRouteState<N, D>>` with `{ status: 'loading' | 'success' | 'error' }` per route transition. |
+| `mount(outlet)` | Subscribes to `routeState$`, runs `pending/error/mount`, and swaps subscriptions automatically. |
+| `preload()` | Eagerly preloads all lazy route modules. |
+
+Route options:
+- `mount`: synchronous view mount function
+- `lazyMount`: async view loader (dynamic import-friendly), cached after first resolve
+
+Router options:
+- `preload: 'none' | 'all' | 'visible'`
+  - `none`: no preloading
+  - `all`: preload every lazy route immediately
+  - `visible`: preload lazy routes when matching links become visible in viewport
+
+Behavior:
+- Loaders are canceled automatically on fast navigation (`switchMap`).
+- Pending and error views are route-scoped hooks.
+- Previous view subscriptions are always unsubscribed before rendering the next state.
+
 ## RouteMatch
 
 ```ts
