@@ -8,6 +8,7 @@ export default defineConfig({
       '@rxjs-spa/router',
       '@rxjs-spa/store',
       '@rxjs-spa/http',
+      '@rxjs-spa/errors',
       '@rxjs-spa/forms',
       '@rxjs-spa/persist',
     ],

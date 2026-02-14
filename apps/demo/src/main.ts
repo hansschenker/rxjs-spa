@@ -2,6 +2,7 @@ import './style.css'
 import { Subscription, of } from 'rxjs'
 import { createRouter, withGuard } from '@rxjs-spa/router'
 import { mount } from '@rxjs-spa/dom'
+import { errorHandler, errorSub } from './error-handler'
 import { globalStore } from './store/global.store'
 import { navComponent } from './components/nav'
 import { homeView } from './views/home.view'
@@ -9,6 +10,24 @@ import { usersView } from './views/users.view'
 import { userDetailView } from './views/user.view'
 import { contactView } from './views/contact.view'
 import { loginView } from './views/login.view'
+
+// ---------------------------------------------------------------------------
+// Error toast — shows errors from the global handler, auto-dismisses
+// ---------------------------------------------------------------------------
+
+const toastEl = document.createElement('div')
+toastEl.id = 'error-toast'
+toastEl.className = 'error-toast hidden'
+document.body.appendChild(toastEl)
+
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+const errorToastSub = errorHandler.errors$.subscribe((e) => {
+  toastEl.textContent = e.message
+  toastEl.classList.remove('hidden')
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => toastEl.classList.add('hidden'), 4000)
+})
 
 // ---------------------------------------------------------------------------
 // Router
@@ -102,5 +121,8 @@ if (import.meta.hot) {
     navSub.unsubscribe()
     outletSub.unsubscribe()
     currentViewSub?.unsubscribe()
+    errorSub.unsubscribe()
+    errorToastSub.unsubscribe()
+    toastEl.remove()
   })
 }

@@ -1,13 +1,14 @@
-import { Subscription, of } from 'rxjs'
-import { catchError, map, switchMap } from 'rxjs/operators'
+import { Subscription } from 'rxjs'
+import { map, switchMap } from 'rxjs/operators'
 import { createStore, ofType } from '@rxjs-spa/store'
-import { http, toRemoteData, isLoading, isSuccess, isError } from '@rxjs-spa/http'
+import { catchAndReport } from '@rxjs-spa/errors'
 import { attr, classToggle, events, mount, renderKeyedComponents, text } from '@rxjs-spa/dom'
 import type { Router } from '@rxjs-spa/router'
 import type { Store } from '@rxjs-spa/store'
 import type { GlobalState, GlobalAction } from '../store/global.store'
 import type { User } from '../types'
 import { api } from '../api/api'
+import { errorHandler } from '../error-handler'
 
 // ---------------------------------------------------------------------------
 // Model / Action / Reducer
@@ -123,9 +124,10 @@ export function usersView(
     switchMap(() =>
       api.users.list().pipe(
         map(users => ({ type: 'FETCH_SUCCESS' as const, users })),
-        catchError(err =>
-          of({ type: 'FETCH_ERROR' as const, error: String((err as Error).message) }),
-        ),
+        catchAndReport(errorHandler, {
+          fallback: { type: 'FETCH_ERROR' as const, error: 'Failed to load users' },
+          context: 'usersView/FETCH',
+        }),
       ),
     ),
   ).subscribe(action => store.dispatch(action))

@@ -333,3 +333,24 @@ strong.negative { color: var(--danger); }
   border-color: var(--danger);
 }
 .btn-danger:hover { background: #b91c1c; }
+
+/* ── Error toast ────────────────────────────────────────────────────────── */
+.error-toast {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  max-width: 400px;
+  padding: 0.75rem 1.25rem;
+  background: var(--danger);
+  color: #fff;
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,.2);
+  font-size: 0.875rem;
+  z-index: 9999;
+  transition: opacity .3s, transform .3s;
+}
+.error-toast.hidden {
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+}

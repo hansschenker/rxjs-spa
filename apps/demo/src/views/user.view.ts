@@ -1,12 +1,14 @@
-import { Subscription, combineLatest, of } from 'rxjs'
-import { catchError, map, switchMap } from 'rxjs/operators'
+import { Subscription, combineLatest } from 'rxjs'
+import { map, switchMap } from 'rxjs/operators'
 import { createStore, ofType } from '@rxjs-spa/store'
+import { catchAndReport } from '@rxjs-spa/errors'
 import { attr, classToggle, events, mount, renderKeyedList, text } from '@rxjs-spa/dom'
 import type { Router, RouteParams } from '@rxjs-spa/router'
 import type { Store } from '@rxjs-spa/store'
 import type { GlobalState, GlobalAction } from '../store/global.store'
 import type { Post, User } from '../types'
 import { api } from '../api/api'
+import { errorHandler } from '../error-handler'
 
 // ---------------------------------------------------------------------------
 // Model / Action / Reducer
@@ -108,9 +110,10 @@ export function userDetailView(
         api.posts.byUser(userId),
       ]).pipe(
         map(([user, posts]) => ({ type: 'FETCH_SUCCESS' as const, user, posts })),
-        catchError(err =>
-          of({ type: 'FETCH_ERROR' as const, error: String((err as Error).message) }),
-        ),
+        catchAndReport(errorHandler, {
+          fallback: { type: 'FETCH_ERROR' as const, error: 'Failed to load user details' },
+          context: 'userDetailView/FETCH',
+        }),
       ),
     ),
   ).subscribe(action => store.dispatch(action))
