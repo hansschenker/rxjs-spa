@@ -92,7 +92,9 @@ store.actions$.pipe(ofType('FETCH'), switchMap(() => http.get(…))).subscribe(s
 - `combineStores(a, b, project)` — derives from two stores via `combineLatest`
 
 **`@rxjs-spa/http`** (`packages/http/src/public.ts`)
-- `http.get/post/put/patch/delete` — cold Observables via `rxjs/ajax`; unsubscribe cancels XHR
+- `http.get/post/put/patch/delete` — default client; cold Observables via `rxjs/ajax`; unsubscribe cancels XHR
+- `createHttpClient(config?)` → `HttpClient` — factory with `baseUrl` and `interceptors` support
+- `HttpInterceptor` — `{ request?(config) → config, response?(source$) → source$ }`; request phase runs left-to-right, response phase right-to-left
 - `RemoteData<T>` — `idle | loading | success | error` discriminated union
 - `toRemoteData()` — operator that wraps any Observable into a `RemoteData<T>` stream
 
