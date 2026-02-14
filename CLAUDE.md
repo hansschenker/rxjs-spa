@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-`rxjs-spa` is an npm workspaces monorepo that is a full-featured SPA framework built entirely on **RxJS + TypeScript** — no third-party framework. It ships five packages covering state management, HTTP, routing, DOM bindings, and core utilities, plus a full-stack demo app and a VitePress docs site.
+`rxjs-spa` is an npm workspaces monorepo that is a full-featured SPA framework built entirely on **RxJS + TypeScript** — no third-party framework. It ships eight packages covering state management, HTTP, routing, DOM bindings, forms, persistence, error handling, and core utilities, plus a full-stack demo app and a VitePress docs site.
 
 ## Commands
 
@@ -40,11 +40,14 @@ rxjs-spa/
     demo/           Full-stack demo: 3 routes, MVU, HTTP, global + local stores
     playground/     Original quick-start playground (counter + todos)
   packages/
-    core/           @rxjs-spa/core   — remember(), rememberWhileSubscribed()
-    dom/            @rxjs-spa/dom    — DOM sources, sinks, component primitives
-    router/         @rxjs-spa/router — hash-based router, :param matching
-    store/          @rxjs-spa/store  — createStore (MVU), ofType, combineStores
-    http/           @rxjs-spa/http   — http client (rxjs/ajax), RemoteData, toRemoteData
+    core/           @rxjs-spa/core    — remember(), rememberWhileSubscribed()
+    dom/            @rxjs-spa/dom     — DOM sources, sinks, component primitives
+    errors/         @rxjs-spa/errors  — global error handling, catchAndReport, safeScan
+    forms/          @rxjs-spa/forms   — reactive forms with schema validation
+    http/           @rxjs-spa/http    — http client (rxjs/ajax), RemoteData, toRemoteData
+    persist/        @rxjs-spa/persist — localStorage/sessionStorage persistence for stores
+    router/         @rxjs-spa/router  — hash-based router, :param matching, withGuard
+    store/          @rxjs-spa/store   — createStore (MVU), ofType, combineStores
     vitest.config.ts  Workspace-level Vitest multi-project runner
   docs/             VitePress documentation
 ```
@@ -108,6 +111,45 @@ store.actions$.pipe(ofType('FETCH'), switchMap(() => http.get(…))).subscribe(s
 - `remember()` — `shareReplay({ bufferSize: 1, refCount: false })`
 - `rememberWhileSubscribed()` — same but tears down when subscriber count hits zero
 
+**`@rxjs-spa/errors`** (`packages/errors/src/public.ts`)
+- `createErrorHandler(config?)` → `[ErrorHandler, Subscription]` — centralized error bus; captures `window.onerror` and `unhandledrejection`; exposes `errors$` stream and `reportError()` method
+- `catchAndReport(handler, options?)` — drop-in `catchError` replacement that auto-reports to the handler; optional `fallback` value/Observable and `context` label
+- `safeScan(reducer, initial, handler, options?)` — wraps `scan` with try/catch inside the accumulator; on reducer throw reports error and returns previous state (pipeline stays alive)
+- `safeSubscribe(source$, handler, next, options?)` — subscribes with auto-wired error callback to prevent silent subscription deaths
+- `createSafeStore(reducer, initial, handler, options?)` — drop-in `createStore` replacement using `safeScan` internally
+
+**`@rxjs-spa/forms`** (`packages/forms/src/`)
+- `createForm<S>(schema)` → `{ values$, errors$, touched$, valid$, submitting$, actions$, field(), setValue(), submit(), reset(), … }`
+- `s.string()`, `s.number()`, `s.boolean()` — fluent schema builders with `.required()`, `.email()`, `.minLength()`, `.pattern()`, etc.
+- `bindInput`, `bindCheckbox`, `bindSelect`, `bindError`, `bindField` — two-way DOM binders
+
+**`@rxjs-spa/persist`** (`packages/persist/src/public.ts`)
+- `createPersistedStore(reducer, initial, key, opts?)` — drop-in `createStore` with localStorage hydration + persistence
+- `loadState`, `persistState`, `clearState` — lower-level persistence primitives
+- Supports `pick` (partial persistence), `version` (wipe on mismatch), custom `Storage` backends
+
+### Error Handling Pattern (apps/demo/src/error-handler.ts)
+```typescript
+const [errorHandler, errorSub] = createErrorHandler({
+  enableGlobalCapture: true,
+  onError: (e) => console.error(`[${e.source}] ${e.message}`),
+})
+
+// In effects — replaces manual catchError:
+store.actions$.pipe(
+  ofType('FETCH'),
+  switchMap(() =>
+    http.get('/api/data').pipe(
+      map(data => ({ type: 'SUCCESS' as const, data })),
+      catchAndReport(errorHandler, {
+        fallback: { type: 'ERROR' as const, error: 'Request failed' },
+        context: 'myView/FETCH',
+      }),
+    ),
+  ),
+).subscribe(store.dispatch)
+```
+
 ### Router Outlet Pattern (apps/demo/src/main.ts)
 ```typescript
 let currentViewSub: Subscription | null = null
@@ -136,5 +178,5 @@ All subscriptions are explicit. HMR `import.meta.hot.dispose` calls `.unsubscrib
 ## Build Config
 - Packages: Vite library mode (`es` + `cjs`), `rxjs` and `rxjs/ajax` always external
 - TypeScript: ES2022 target, `moduleResolution: "Bundler"`, strict mode
-- Test environments: `jsdom` for dom/router/http/demo; `node` for core/store
+- Test environments: `jsdom` for dom/router/http/errors/forms/persist/demo; `node` for core/store
 - RxJS 7.8.2 pinned via root `package.json` `overrides`
