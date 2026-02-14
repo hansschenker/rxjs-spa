@@ -41,7 +41,7 @@ const router = createRouter({
   '/contact':   'contact',
   '/login':     'login',
   '*':          'not-found',
-} as const)
+} as const, { mode: 'history' })
 
 // ---------------------------------------------------------------------------
 // Shell elements
@@ -67,7 +67,7 @@ function authGuard() {
 }
 
 function onDenied() {
-  const path = window.location.hash.replace(/^#/, '') || '/'
+  const path = window.location.pathname || '/'
   globalStore.dispatch({ type: 'SET_REDIRECT', path })
   router.navigate('/login')
 }
@@ -110,10 +110,10 @@ const outletSub = guarded$.subscribe(({ name, params }) => {
 })
 
 // ---------------------------------------------------------------------------
-// Default route — navigate to / if hash is empty
+// Default route — navigate to / if pathname is empty
 // ---------------------------------------------------------------------------
 
-if (!window.location.hash || window.location.hash === '#') {
+if (!window.location.pathname || window.location.pathname === '/') {
   router.navigate('/')
 }
 
@@ -123,6 +123,7 @@ if (!window.location.hash || window.location.hash === '#') {
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
+    router.destroy()
     navSub.unsubscribe()
     outletSub.unsubscribe()
     currentViewSub?.unsubscribe()

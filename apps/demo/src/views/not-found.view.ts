@@ -18,7 +18,7 @@ export function notFoundView(
   const pathEl = container.querySelector<HTMLElement>('#current-path')!
   const homeBtn = container.querySelector<HTMLButtonElement>('#home-btn')!
 
-  pathEl.textContent = window.location.hash.replace(/^#/, '') || '/'
+  pathEl.textContent = window.location.pathname || '/'
 
   return mount(container, () => [
     events(homeBtn, 'click').subscribe(() => router.navigate('/')),
