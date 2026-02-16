@@ -24,18 +24,99 @@ button {
   cursor: pointer;
 }
 
+button:hover {
+  background: #f0f0f0;
+}
+
+/* Create form */
+.create-form {
+  display: flex;
+  gap: 8px;
+}
+
+.create-form input {
+  flex: 1;
+}
+
+/* Toolbar */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+/* Todo list */
+#todo-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
 li.todo {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 6px 0;
+  border-bottom: 1px solid #eee;
 }
 
-li.todo.done span.label {
+li.todo:last-child {
+  border-bottom: none;
+}
+
+li.todo .label {
+  flex: 1;
+}
+
+li.todo.done .label {
   text-decoration: line-through;
-  opacity: 0.7;
+  opacity: 0.5;
 }
 
+/* Todo action buttons */
+.todo-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.todo-actions button {
+  font-size: 14px;
+  padding: 2px 8px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.todo-actions button:hover {
+  opacity: 1;
+}
+
+/* Edit form */
+.edit-form {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.edit-form input {
+  flex: 1;
+}
+
+/* Hidden utility */
+.hidden {
+  display: none !important;
+}
+
+/* Empty message */
+.empty-msg {
+  text-align: center;
+  opacity: 0.5;
+  font-style: italic;
+}
+
+/* Input */
 input[type="text"] {
   padding: 6px 10px;
   border-radius: 10px;

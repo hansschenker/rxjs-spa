@@ -19,20 +19,20 @@ export function text(el: Element) {
 }
 
 /**
- * html(el)(value$)
+ * innerHtml(el)(value$)
  * Writes each incoming value to el.innerHTML.
  *
  * **Warning:** This writes raw HTML — never pipe user-controlled data through
  * it. Use `safeHtml()` or `text()` for untrusted content.
  */
-export function html(el: Element) {
+export function innerHtml(el: Element) {
   return (value$: Observable<string>): Subscription =>
     value$.subscribe((v) => {
-      ;(el as HTMLElement).innerHTML = v
+      ; (el as HTMLElement).innerHTML = v
     })
 }
 
-function escapeHtml(str: string): string {
+export function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -49,7 +49,7 @@ function escapeHtml(str: string): string {
 export function safeHtml(el: Element) {
   return (value$: Observable<string>): Subscription =>
     value$.subscribe((v) => {
-      ;(el as HTMLElement).innerHTML = escapeHtml(v)
+      ; (el as HTMLElement).innerHTML = escapeHtml(v)
     })
 }
 
@@ -74,7 +74,7 @@ export function attr(el: Element, name: string) {
 export function prop<T extends object, K extends keyof T>(el: T, key: K) {
   return (value$: Observable<T[K]>): Subscription =>
     value$.subscribe((v) => {
-      ;(el as any)[key] = v
+      ; (el as any)[key] = v
     })
 }
 

@@ -5,10 +5,14 @@ import {
   FormValues,
   FormErrors,
   FormTouched,
+  FormValidator,
   getInitialValues,
   validateAll,
   isFormValid,
+  isGroupSchema,
+  mergeWithCrossFieldErrors,
 } from './schema'
+import type { GroupFieldSchema } from './schema'
 
 // ---------------------------------------------------------------------------
 // FormAction
@@ -16,7 +20,9 @@ import {
 
 export type FormAction<S extends SchemaShape> =
   | { type: 'SET_VALUE'; field: keyof S; value: FormValues<S>[keyof S] }
+  | { type: 'SET_NESTED_VALUE'; path: string; value: unknown }
   | { type: 'TOUCH'; field: keyof S }
+  | { type: 'TOUCH_NESTED'; path: string }
   | { type: 'TOUCH_ALL' }
   | { type: 'RESET' }
   | { type: 'SUBMIT_START' }
@@ -34,6 +40,32 @@ export interface FormState<S extends SchemaShape> {
 }
 
 // ---------------------------------------------------------------------------
+// Deep state helpers
+// ---------------------------------------------------------------------------
+
+function deepSet(obj: any, pathParts: string[], value: unknown): any {
+  if (pathParts.length === 0) return value
+  if (pathParts.length === 1) {
+    return { ...obj, [pathParts[0]]: value }
+  }
+  const [head, ...rest] = pathParts
+  return { ...obj, [head]: deepSet(obj[head], rest, value) }
+}
+
+function deepGet(obj: any, pathParts: string[]): unknown {
+  let current = obj
+  for (const part of pathParts) {
+    if (current === null || current === undefined) return undefined
+    current = current[part]
+  }
+  return current
+}
+
+function parsePath(path: string): string[] {
+  return path.split('.')
+}
+
+// ---------------------------------------------------------------------------
 // FieldControl
 // ---------------------------------------------------------------------------
 
@@ -47,10 +79,34 @@ export interface FieldControl<T> {
 }
 
 // ---------------------------------------------------------------------------
+// FormAccessor — common interface for Form and FormGroup
+// ---------------------------------------------------------------------------
+
+export interface FormAccessor<S extends SchemaShape> {
+  field<K extends keyof S>(name: K): FieldControl<FormValues<S>[K]>
+  setValue<K extends keyof S>(name: K, value: FormValues<S>[K]): void
+  setTouched(name: keyof S): void
+}
+
+// ---------------------------------------------------------------------------
+// FormGroup — scoped view into a nested group
+// ---------------------------------------------------------------------------
+
+export interface FormGroup<S extends SchemaShape> extends FormAccessor<S> {
+  values$: Observable<FormValues<S>>
+  errors$: Observable<FormErrors<S>>
+  touched$: Observable<FormTouched<S>>
+  valid$: Observable<boolean>
+  group<K extends keyof S>(
+    name: K,
+  ): S[K] extends GroupFieldSchema<infer Inner> ? FormGroup<Inner> : never
+}
+
+// ---------------------------------------------------------------------------
 // Form<S>
 // ---------------------------------------------------------------------------
 
-export interface Form<S extends SchemaShape> {
+export interface Form<S extends SchemaShape> extends FormAccessor<S> {
   values$: Observable<FormValues<S>>
   errors$: Observable<FormErrors<S>>
   touched$: Observable<FormTouched<S>>
@@ -58,15 +114,15 @@ export interface Form<S extends SchemaShape> {
   submitting$: Observable<boolean>
   /** Action stream — wire submit effects here (like store.actions$). */
   actions$: Observable<FormAction<S>>
-  field<K extends keyof S>(name: K): FieldControl<FormValues<S>[K]>
-  setValue<K extends keyof S>(name: K, value: FormValues<S>[K]): void
-  setTouched(name: keyof S): void
   submit(): void
   submitEnd(ok: boolean): void
   reset(): void
   getValues(): FormValues<S>
   getErrors(): FormErrors<S>
   isValid(): boolean
+  group<K extends keyof S>(
+    name: K,
+  ): S[K] extends GroupFieldSchema<infer Inner> ? FormGroup<Inner> : never
 }
 
 // ---------------------------------------------------------------------------
@@ -74,9 +130,27 @@ export interface Form<S extends SchemaShape> {
 // ---------------------------------------------------------------------------
 
 function makeInitialTouched<S extends SchemaShape>(schema: S): FormTouched<S> {
-  const touched: Record<string, boolean> = {}
+  const touched: Record<string, unknown> = {}
   for (const key in schema) {
-    touched[key] = false
+    const entry = schema[key]
+    if (isGroupSchema(entry)) {
+      touched[key] = makeInitialTouched(entry.shape)
+    } else {
+      touched[key] = false
+    }
+  }
+  return touched as FormTouched<S>
+}
+
+function makeTouchAll<S extends SchemaShape>(schema: S): FormTouched<S> {
+  const touched: Record<string, unknown> = {}
+  for (const key in schema) {
+    const entry = schema[key]
+    if (isGroupSchema(entry)) {
+      touched[key] = makeTouchAll(entry.shape)
+    } else {
+      touched[key] = true
+    }
   }
   return touched as FormTouched<S>
 }
@@ -92,16 +166,27 @@ function formReducer<S extends SchemaShape>(schema: S) {
           ...state,
           values: { ...state.values, [action.field]: action.value },
         }
+      case 'SET_NESTED_VALUE': {
+        const parts = parsePath(action.path)
+        return {
+          ...state,
+          values: deepSet(state.values, parts, action.value),
+        }
+      }
       case 'TOUCH':
         return {
           ...state,
           touched: { ...state.touched, [action.field]: true },
         }
-      case 'TOUCH_ALL': {
-        const touched: Record<string, boolean> = {}
-        for (const key in schema) touched[key] = true
-        return { ...state, touched: touched as FormTouched<S> }
+      case 'TOUCH_NESTED': {
+        const parts = parsePath(action.path)
+        return {
+          ...state,
+          touched: deepSet(state.touched, parts, true),
+        }
       }
+      case 'TOUCH_ALL':
+        return { ...state, touched: makeTouchAll(schema) }
       case 'RESET':
         return {
           values: { ...initialValues },
@@ -120,10 +205,133 @@ function formReducer<S extends SchemaShape>(schema: S) {
 }
 
 // ---------------------------------------------------------------------------
+// FormOptions
+// ---------------------------------------------------------------------------
+
+export interface FormOptions<S extends SchemaShape> {
+  /** Form-level validators that can compare multiple fields. */
+  validators?: FormValidator<S>[]
+}
+
+// ---------------------------------------------------------------------------
+// createFormGroup — internal factory for nested group access
+// ---------------------------------------------------------------------------
+
+function createFormGroup<S extends SchemaShape>(
+  schema: S,
+  pathPrefix: string,
+  parentValues$: Observable<FormValues<S>>,
+  parentErrors$: Observable<FormErrors<S>>,
+  parentTouched$: Observable<FormTouched<S>>,
+  initialValues: FormValues<S>,
+  dispatchFn: (action: any) => void,
+): FormGroup<S> {
+  const values$ = parentValues$.pipe(
+    distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
+  )
+  const errors$ = parentErrors$.pipe(
+    distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
+  )
+  const touched$ = parentTouched$.pipe(
+    distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
+  )
+  const valid$ = errors$.pipe(map(isFormValid), distinctUntilChanged())
+
+  return {
+    values$,
+    errors$,
+    touched$,
+    valid$,
+
+    field<K extends keyof S & string>(name: K): FieldControl<FormValues<S>[K]> {
+      const value$ = values$.pipe(
+        map((v) => v[name]),
+        distinctUntilChanged(),
+      ) as Observable<FormValues<S>[K]>
+
+      const fieldEntry = schema[name]
+      let error$: Observable<string | null>
+
+      if (isGroupSchema(fieldEntry)) {
+        // For group fields, error$ shows null if all nested pass, or first nested error
+        error$ = errors$.pipe(
+          map((e) => {
+            const groupErrors = e[name]
+            if (groupErrors && typeof groupErrors === 'object') {
+              return isFormValid({ [name]: groupErrors } as any) ? null : 'Group has errors'
+            }
+            return null
+          }),
+          distinctUntilChanged(),
+        )
+      } else {
+        error$ = errors$.pipe(
+          map((e) => e[name] as string | null),
+          distinctUntilChanged(),
+        )
+      }
+
+      const fieldTouched$ = touched$.pipe(
+        map((t) => {
+          const val = t[name]
+          return typeof val === 'boolean' ? val : false
+        }),
+        distinctUntilChanged(),
+      )
+
+      const dirty$ = values$.pipe(
+        map((v) => v[name] !== initialValues[name]),
+        distinctUntilChanged(),
+      )
+
+      const showError$ = combineLatest([error$, fieldTouched$]).pipe(
+        map(([error, touched]) => (touched ? error : null)),
+        distinctUntilChanged(),
+      )
+
+      return { value$, error$, touched$: fieldTouched$, dirty$, showError$ }
+    },
+
+    setValue<K extends keyof S & string>(name: K, value: FormValues<S>[K]): void {
+      const fullPath = pathPrefix ? `${pathPrefix}.${name}` : name
+      dispatchFn({ type: 'SET_NESTED_VALUE', path: fullPath, value })
+    },
+
+    setTouched(name: keyof S & string): void {
+      const fullPath = pathPrefix ? `${pathPrefix}.${name}` : name
+      dispatchFn({ type: 'TOUCH_NESTED', path: fullPath })
+    },
+
+    group<K extends keyof S & string>(name: K): any {
+      const entry = schema[name]
+      if (!isGroupSchema(entry)) {
+        throw new Error(`Field "${name}" is not a group`)
+      }
+      const innerSchema = entry.shape
+      const innerValues$ = values$.pipe(
+        map((v) => (v as any)[name]),
+      )
+      const innerErrors$ = errors$.pipe(
+        map((e) => (e as any)[name]),
+      )
+      const innerTouched$ = touched$.pipe(
+        map((t) => (t as any)[name]),
+      )
+      const innerInitial = (initialValues as any)[name]
+      const innerPath = pathPrefix ? `${pathPrefix}.${name}` : name
+      return createFormGroup(innerSchema, innerPath, innerValues$, innerErrors$, innerTouched$, innerInitial, dispatchFn)
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
 // createForm
 // ---------------------------------------------------------------------------
 
-export function createForm<S extends SchemaShape>(schema: S): Form<S> {
+export function createForm<S extends SchemaShape>(
+  schema: S,
+  options?: FormOptions<S>,
+): Form<S> {
   const initialValues = getInitialValues(schema)
   const initialTouched = makeInitialTouched(schema)
 
@@ -164,7 +372,13 @@ export function createForm<S extends SchemaShape>(schema: S): Form<S> {
   const submitting$ = select((s) => s.submitting)
 
   const errors$ = values$.pipe(
-    map((values) => validateAll(values, schema)),
+    map((values) => {
+      const fieldErrors = validateAll(values, schema)
+      if (options?.validators?.length) {
+        return mergeWithCrossFieldErrors(fieldErrors, options.validators, values)
+      }
+      return fieldErrors
+    }),
     distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
   )
 
@@ -178,19 +392,39 @@ export function createForm<S extends SchemaShape>(schema: S): Form<S> {
     submitting$,
     actions$,
 
-    field<K extends keyof S>(name: K): FieldControl<FormValues<S>[K]> {
+    field<K extends keyof S & string>(name: K): FieldControl<FormValues<S>[K]> {
       const value$ = values$.pipe(
         map((v) => v[name]),
         distinctUntilChanged(),
       ) as Observable<FormValues<S>[K]>
 
-      const error$ = errors$.pipe(
-        map((e) => e[name]),
-        distinctUntilChanged(),
-      )
+      const fieldEntry = schema[name]
+      let error$: Observable<string | null>
+
+      if (isGroupSchema(fieldEntry)) {
+        // For group fields, error$ summarizes nested validity
+        error$ = errors$.pipe(
+          map((e) => {
+            const groupErrors = e[name]
+            if (groupErrors && typeof groupErrors === 'object') {
+              return isFormValid({ [name]: groupErrors } as any) ? null : 'Group has errors'
+            }
+            return null
+          }),
+          distinctUntilChanged(),
+        )
+      } else {
+        error$ = errors$.pipe(
+          map((e) => e[name] as string | null),
+          distinctUntilChanged(),
+        )
+      }
 
       const fieldTouched$ = touched$.pipe(
-        map((t) => t[name]),
+        map((t) => {
+          const val = t[name]
+          return typeof val === 'boolean' ? val : false
+        }),
         distinctUntilChanged(),
       )
 
@@ -207,11 +441,11 @@ export function createForm<S extends SchemaShape>(schema: S): Form<S> {
       return { value$, error$, touched$: fieldTouched$, dirty$, showError$ }
     },
 
-    setValue<K extends keyof S>(name: K, value: FormValues<S>[K]): void {
+    setValue<K extends keyof S & string>(name: K, value: FormValues<S>[K]): void {
       dispatch({ type: 'SET_VALUE', field: name, value })
     },
 
-    setTouched(name: keyof S): void {
+    setTouched(name: keyof S & string): void {
       dispatch({ type: 'TOUCH', field: name })
     },
 
@@ -233,11 +467,28 @@ export function createForm<S extends SchemaShape>(schema: S): Form<S> {
     },
 
     getErrors(): FormErrors<S> {
-      return validateAll(stateBs.value.values, schema)
+      const fieldErrors = validateAll(stateBs.value.values, schema)
+      if (options?.validators?.length) {
+        return mergeWithCrossFieldErrors(fieldErrors, options.validators, stateBs.value.values)
+      }
+      return fieldErrors
     },
 
     isValid(): boolean {
       return isFormValid(this.getErrors())
+    },
+
+    group<K extends keyof S & string>(name: K): any {
+      const entry = schema[name]
+      if (!isGroupSchema(entry)) {
+        throw new Error(`Field "${name}" is not a group`)
+      }
+      const innerSchema = entry.shape
+      const innerValues$ = values$.pipe(map((v) => (v as any)[name]))
+      const innerErrors$ = errors$.pipe(map((e) => (e as any)[name]))
+      const innerTouched$ = touched$.pipe(map((t) => (t as any)[name]))
+      const innerInitial = (initialValues as any)[name]
+      return createFormGroup(innerSchema, name, innerValues$, innerErrors$, innerTouched$, innerInitial, dispatch as any)
     },
   }
 }

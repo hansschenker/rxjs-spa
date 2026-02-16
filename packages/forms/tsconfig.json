@@ -7,5 +7,8 @@
     "src",
     "vite.config.ts",
     "vitest.config.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
   ]
 }

@@ -18,6 +18,7 @@ export default defineConfig({
       'packages/testing',
       'apps/playground',
       'apps/demo',
+      'apps/shop',
     ],
   },
 })

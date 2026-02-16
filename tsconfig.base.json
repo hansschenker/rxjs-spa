@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": [
-      "ES2022",
+      "ESNext",
       "DOM",
       "DOM.Iterable"
     ],
@@ -13,6 +13,12 @@
     "useDefineForClassFields": true,
     "types": [
       "vitest/globals"
-    ]
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@rxjs-spa/*": [
+        "packages/*/src/index.ts"
+      ]
+    }
   }
 }

@@ -2,7 +2,7 @@ import { Subscription } from 'rxjs'
 import { map, switchMap } from 'rxjs/operators'
 import { createStore, ofType } from '@rxjs-spa/store'
 import { catchAndReport } from '@rxjs-spa/errors'
-import { attr, classToggle, events, mount, renderKeyedComponents, text } from '@rxjs-spa/dom'
+import { defineComponent, html } from '@rxjs-spa/dom'
 import type { Router } from '@rxjs-spa/router'
 import type { Store } from '@rxjs-spa/store'
 import type { GlobalState, GlobalAction } from '../store/global.store'
@@ -43,77 +43,33 @@ function usersReducer(state: UsersState, action: UsersAction): UsersState {
 const INITIAL: UsersState = { users: [], loading: false, error: null, search: '' }
 
 // ---------------------------------------------------------------------------
-// User card mini-component
+// User card mini-component (now declarative)
 // ---------------------------------------------------------------------------
 
-type UserCardAction = never // cards don't dispatch actions upward in this view
-
-function userCard(
-  item$: import('rxjs').Observable<User>,
-  _ctx: { dispatch: (a: UserCardAction) => void },
-  router: Router<'home' | 'users' | 'user-detail'>,
-): { node: Node; sub: Subscription } {
-  const li = document.createElement('li')
-  li.className = 'user-card'
-  li.innerHTML = `
-    <div class="user-avatar"></div>
-    <div class="user-info">
-      <strong class="user-name"></strong>
-      <span class="user-email"></span>
-      <span class="user-company"></span>
-    </div>
-    <a class="user-link btn-outline" href="">View profile →</a>
+function userCard(user: User, router: Router<any>) {
+  return html`
+    <li class="user-card">
+      <div class="user-avatar">${user.name.charAt(0).toUpperCase()}</div>
+      <div class="user-info">
+        <strong class="user-name">${user.name}</strong>
+        <span class="user-email">${user.email}</span>
+        <span class="user-company">${user.company.name}</span>
+      </div>
+      <a class="user-link btn-outline" href="${router.link(`/users/${user.id}`)}">
+        View profile →
+      </a>
+    </li>
   `
-
-  const nameEl    = li.querySelector<HTMLElement>('.user-name')!
-  const emailEl   = li.querySelector<HTMLElement>('.user-email')!
-  const companyEl = li.querySelector<HTMLElement>('.user-company')!
-  const linkEl    = li.querySelector<HTMLAnchorElement>('.user-link')!
-  const avatarEl  = li.querySelector<HTMLElement>('.user-avatar')!
-
-  const sub = new Subscription()
-  sub.add(text(nameEl)(item$.pipe(map(u => u.name))))
-  sub.add(text(emailEl)(item$.pipe(map(u => u.email))))
-  sub.add(text(companyEl)(item$.pipe(map(u => u.company.name))))
-  sub.add(attr(linkEl, 'href')(item$.pipe(map(u => router.link(`/users/${u.id}`)))))
-  // Initials avatar
-  sub.add(text(avatarEl)(item$.pipe(map(u => u.name.charAt(0).toUpperCase()))))
-
-  return { node: li, sub }
 }
 
 // ---------------------------------------------------------------------------
 // View
 // ---------------------------------------------------------------------------
 
-export function usersView(
-  container: Element,
-  _globalStore: Store<GlobalState, GlobalAction>,
-  router: Router<'home' | 'users' | 'user-detail'>,
-): Subscription {
-  // ── DOM ───────────────────────────────────────────────────────────────────
-  container.innerHTML = `
-    <section class="view users-view">
-      <h1>Users</h1>
-      <p>Data from <a href="https://jsonplaceholder.typicode.com" target="_blank">JSONPlaceholder</a></p>
-
-      <div class="toolbar">
-        <input id="search-input" type="search" placeholder="Filter by name…" />
-        <button id="refresh-btn">Refresh</button>
-      </div>
-
-      <p id="error-msg" class="error hidden"></p>
-      <p id="loading-msg" class="loading hidden">Loading…</p>
-
-      <ul id="user-list" class="user-list"></ul>
-    </section>
-  `
-
-  const searchInput = container.querySelector<HTMLInputElement>('#search-input')!
-  const refreshBtn  = container.querySelector<HTMLButtonElement>('#refresh-btn')!
-  const errorMsg    = container.querySelector<HTMLElement>('#error-msg')!
-  const loadingMsg  = container.querySelector<HTMLElement>('#loading-msg')!
-  const userListEl  = container.querySelector<HTMLUListElement>('#user-list')!
+export const usersView = defineComponent<{
+  globalStore: Store<GlobalState, GlobalAction>,
+  router: Router<any>
+}>(({ globalStore, router }) => {
 
   // ── Local store ───────────────────────────────────────────────────────────
   const store = createStore<UsersState, UsersAction>(usersReducer, INITIAL)
@@ -144,33 +100,39 @@ export function usersView(
     ),
   )
 
-  const noResultSubject = new Subscription()
+  const loading$ = store.select(s => s.loading)
+  const error$ = store.select(s => s.error)
 
-  return mount(container, () => [
-    effectSub,
+  const loadingClass$ = loading$.pipe(map(l => l ? 'loading visible' : 'loading hidden'))
+  const errorClass$ = error$.pipe(map(e => e ? 'error visible' : 'error hidden'))
+  const errorText$ = error$.pipe(map(e => e ?? ''))
 
-    // Search input → SET_SEARCH
-    events(searchInput, 'input').subscribe(() =>
-      store.dispatch({ type: 'SET_SEARCH', query: searchInput.value }),
-    ),
+  // ── Render ────────────────────────────────────────────────────────────────
+  return html`
+    <section class="view users-view">
+      <h1>Users</h1>
+      <p>Data from <a href="https://jsonplaceholder.typicode.com" target="_blank">JSONPlaceholder</a></p>
 
-    // Refresh button → FETCH
-    events(refreshBtn, 'click').subscribe(() => store.dispatch({ type: 'FETCH' })),
+      <div class="toolbar">
+        <input 
+          id="search-input" 
+          type="search" 
+          placeholder="Filter by name…" 
+          @input=${(e: Event) => store.dispatch({ type: 'SET_SEARCH', query: (e.target as HTMLInputElement).value })}
+        />
+        <button id="refresh-btn" @click=${() => store.dispatch({ type: 'FETCH' })}>
+          Refresh
+        </button>
+      </div>
 
-    // Show/hide loading
-    classToggle(loadingMsg, 'hidden')(store.select(s => !s.loading)),
-    classToggle(loadingMsg, 'visible')(store.select(s => s.loading)),
+      <p id="error-msg" class="${errorClass$}">${errorText$}</p>
+      <p id="loading-msg" class="${loadingClass$}">Loading…</p>
 
-    // Show/hide error
-    classToggle(errorMsg, 'hidden')(store.select(s => s.error === null)),
-    text(errorMsg)(store.select(s => s.error ?? '')),
-
-    // Render keyed user cards
-    renderKeyedComponents<User, UserCardAction>(
-      userListEl,
-      u => String(u.id),
-      (item$, ctx) => userCard(item$, ctx, router),
-      { next: () => {} }, // no upward actions from cards
-    )(filteredUsers$),
-  ])
-}
+      <ul id="user-list" class="user-list">
+        ${filteredUsers$.pipe(
+    map(users => users.map(u => userCard(u, router)))
+  )}
+      </ul>
+    </section>
+  `
+})

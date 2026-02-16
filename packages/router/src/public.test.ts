@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { of, throwError } from 'rxjs'
-import { createRouter, withGuard, withScrollReset, lazy } from './public'
-import type { RouteMatch, Router } from './public'
+import { of, throwError, Subscription } from 'rxjs'
+import { createRouter, withGuard, withScrollReset, lazy, createOutlet, routeAtDepth } from './public'
+import type { RouteMatch, RouteConfig, Router } from './public'
 
 // jsdom doesn't fire real hashchange events when you set location.hash,
 // so we trigger it manually in each test.
@@ -906,5 +906,347 @@ describe('lazy', () => {
     })
 
     expect(errorMsg).toBe('load failed')
+  })
+})
+
+// ===========================================================================
+// Nested route config (RouteConfig[])
+// ===========================================================================
+
+describe('createRouter — nested routes (RouteConfig[])', () => {
+  beforeEach(() => {
+    window.location.hash = ''
+  })
+
+  const NESTED_ROUTES: RouteConfig<
+    'home' | 'users-layout' | 'users-list' | 'user-detail' | 'user-posts' | 'not-found'
+  >[] = [
+    { path: '/', name: 'home' },
+    {
+      path: '/users', name: 'users-layout',
+      children: [
+        { path: '', name: 'users-list' },
+        {
+          path: ':id', name: 'user-detail',
+          children: [
+            { path: 'posts', name: 'user-posts' },
+          ],
+        },
+      ],
+    },
+    { path: '*', name: 'not-found' },
+  ]
+
+  it('matches the root route', () => {
+    window.location.hash = '#/'
+    const router = createRouter(NESTED_ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    expect(seen[0].name).toBe('home')
+    expect(seen[0].matched).toHaveLength(1)
+    expect(seen[0].matched[0].name).toBe('home')
+    sub.unsubscribe()
+  })
+
+  it('matches a parent with empty-string index child', () => {
+    window.location.hash = '#/users'
+    const router = createRouter(NESTED_ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    expect(seen[0].name).toBe('users-list')
+    expect(seen[0].matched).toHaveLength(2)
+    expect(seen[0].matched[0].name).toBe('users-layout')
+    expect(seen[0].matched[1].name).toBe('users-list')
+    sub.unsubscribe()
+  })
+
+  it('matches a child with params', () => {
+    window.location.hash = '#/users/42'
+    const router = createRouter(NESTED_ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    expect(seen[0].name).toBe('user-detail')
+    expect(seen[0].params).toEqual({ id: '42' })
+    expect(seen[0].matched).toHaveLength(2)
+    expect(seen[0].matched[0].name).toBe('users-layout')
+    expect(seen[0].matched[1].name).toBe('user-detail')
+    expect(seen[0].matched[1].params).toEqual({ id: '42' })
+    sub.unsubscribe()
+  })
+
+  it('matches three levels deep', () => {
+    window.location.hash = '#/users/42/posts'
+    const router = createRouter(NESTED_ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    expect(seen[0].name).toBe('user-posts')
+    expect(seen[0].params).toEqual({ id: '42' })
+    expect(seen[0].matched).toHaveLength(3)
+    expect(seen[0].matched[0].name).toBe('users-layout')
+    expect(seen[0].matched[1].name).toBe('user-detail')
+    expect(seen[0].matched[2].name).toBe('user-posts')
+    sub.unsubscribe()
+  })
+
+  it('falls back to wildcard for unmatched paths', () => {
+    window.location.hash = '#/unknown/path'
+    const router = createRouter(NESTED_ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    expect(seen[0].name).toBe('not-found')
+    expect(seen[0].matched).toHaveLength(1)
+    sub.unsubscribe()
+  })
+
+  it('matched chain params accumulate from parent to child', () => {
+    window.location.hash = '#/users/7/posts'
+    const router = createRouter(NESTED_ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    // The user-posts matched segment should include the parent's :id param
+    expect(seen[0].matched[2].params).toEqual({ id: '7' })
+    sub.unsubscribe()
+  })
+
+  it('emits on navigation between nested children', () => {
+    window.location.hash = '#/users'
+    const router = createRouter(NESTED_ROUTES)
+    const seen: string[] = []
+    const sub = router.route$.subscribe(r => seen.push(r.name))
+
+    setHash('#/users/42')
+    setHash('#/users/42/posts')
+    setHash('#/users')
+
+    expect(seen).toEqual(['users-list', 'user-detail', 'user-posts', 'users-list'])
+    sub.unsubscribe()
+  })
+
+  it('works with history mode', () => {
+    // Start at /users/5
+    history.pushState(null, '', '/users/5')
+    const router = createRouter(NESTED_ROUTES, { mode: 'history' })
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+
+    expect(seen[0].name).toBe('user-detail')
+    expect(seen[0].params).toEqual({ id: '5' })
+    expect(seen[0].matched).toHaveLength(2)
+
+    router.destroy()
+    sub.unsubscribe()
+    history.pushState(null, '', '/')
+  })
+
+  it('parent matches without children when no index route exists', () => {
+    const routes: RouteConfig<'parent' | 'child'>[] = [
+      {
+        path: '/section', name: 'parent',
+        children: [
+          { path: 'sub', name: 'child' },
+        ],
+      },
+    ]
+    window.location.hash = '#/section'
+    const router = createRouter(routes)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    // No index child (path: ''), so parent itself matches
+    expect(seen[0].name).toBe('parent')
+    expect(seen[0].matched).toHaveLength(1)
+    sub.unsubscribe()
+  })
+})
+
+// ===========================================================================
+// Flat routes — matched field backward compat
+// ===========================================================================
+
+describe('createRouter — flat routes include matched[]', () => {
+  beforeEach(() => {
+    window.location.hash = ''
+  })
+
+  it('flat route has single-entry matched array', () => {
+    window.location.hash = '#/users/42'
+    const router = createRouter(ROUTES)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    expect(seen[0].matched).toHaveLength(1)
+    expect(seen[0].matched[0].name).toBe('user-detail')
+    expect(seen[0].matched[0].params).toEqual({ id: '42' })
+    sub.unsubscribe()
+  })
+
+  it('wildcard flat route has single-entry matched array', () => {
+    const routes = { '/': 'home', '*': 'not-found' } as const
+    window.location.hash = '#/unknown'
+    const router = createRouter(routes)
+    const seen: RouteMatch[] = []
+    const sub = router.route$.subscribe(r => seen.push(r))
+    expect(seen[0].matched).toHaveLength(1)
+    expect(seen[0].matched[0].name).toBe('not-found')
+    sub.unsubscribe()
+  })
+})
+
+// ===========================================================================
+// createOutlet
+// ===========================================================================
+
+describe('createOutlet', () => {
+  let container: HTMLDivElement
+
+  beforeEach(() => {
+    window.location.hash = ''
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
+
+  afterEach(() => {
+    container.remove()
+  })
+
+  it('renders view on route emission and clears on next', () => {
+    window.location.hash = '#/'
+    const router = createRouter({ '/': 'home', '/about': 'about' } as const)
+    const outlet = createOutlet(container, router.route$)
+
+    const renderCalls: string[] = []
+    const outletSub = outlet.subscribe((match) => {
+      renderCalls.push(match.name)
+      container.innerHTML = `<p>${match.name}</p>`
+      return new Subscription()
+    })
+
+    expect(renderCalls).toEqual(['home'])
+    expect(container.innerHTML).toBe('<p>home</p>')
+
+    setHash('#/about')
+    expect(renderCalls).toEqual(['home', 'about'])
+    expect(container.innerHTML).toBe('<p>about</p>')
+
+    outletSub.unsubscribe()
+  })
+
+  it('unsubscribes previous view on route change', () => {
+    window.location.hash = '#/'
+    const router = createRouter({ '/': 'home', '/about': 'about' } as const)
+    const outlet = createOutlet(container, router.route$)
+
+    const teardowns: string[] = []
+    const outletSub = outlet.subscribe((match) => {
+      const sub = new Subscription()
+      sub.add(() => teardowns.push(match.name))
+      return sub
+    })
+
+    expect(teardowns).toEqual([])
+
+    setHash('#/about')
+    expect(teardowns).toEqual(['home'])
+
+    outletSub.unsubscribe()
+    // Outer unsubscribe also tears down current view
+    expect(teardowns).toEqual(['home', 'about'])
+  })
+
+  it('clears innerHTML before calling renderFn', () => {
+    window.location.hash = '#/'
+    const router = createRouter({ '/': 'home', '/about': 'about' } as const)
+    const outlet = createOutlet(container, router.route$)
+
+    let innerHtmlAtRender = ''
+    const outletSub = outlet.subscribe((match) => {
+      if (match.name === 'about') {
+        innerHtmlAtRender = container.innerHTML
+      }
+      container.innerHTML = `<div>${match.name}</div>`
+      return null
+    })
+
+    container.innerHTML = '<div>home</div>'
+    setHash('#/about')
+    expect(innerHtmlAtRender).toBe('')
+
+    outletSub.unsubscribe()
+  })
+})
+
+// ===========================================================================
+// routeAtDepth
+// ===========================================================================
+
+describe('routeAtDepth', () => {
+  beforeEach(() => {
+    window.location.hash = ''
+  })
+
+  it('only emits when matched[depth] changes', () => {
+    const routes: RouteConfig<'layout' | 'list' | 'detail'>[] = [
+      {
+        path: '/items', name: 'layout',
+        children: [
+          { path: '', name: 'list' },
+          { path: ':id', name: 'detail' },
+        ],
+      },
+    ]
+
+    window.location.hash = '#/items'
+    const router = createRouter(routes)
+
+    // Depth 0 — layout level
+    const depth0: string[] = []
+    const sub0 = router.route$.pipe(routeAtDepth(0)).subscribe(r => depth0.push(r.name))
+
+    // Depth 1 — child level
+    const depth1: string[] = []
+    const sub1 = router.route$.pipe(routeAtDepth(1)).subscribe(r => depth1.push(r.name))
+
+    setHash('#/items/42')
+    setHash('#/items/99')  // same child route name, different param
+    setHash('#/items')
+
+    // Depth 0 sees: 'list' (initial), then stays 'layout' throughout — only 1 emission
+    // since the layout name doesn't change
+    expect(depth0).toHaveLength(1)
+
+    // Depth 1 sees: 'list', 'detail' (id=42), 'detail' (id=99 — param change), 'list'
+    expect(depth1.length).toBe(4)
+    expect(depth1).toEqual(['list', 'detail', 'detail', 'list'])
+
+    sub0.unsubscribe()
+    sub1.unsubscribe()
+  })
+
+  it('filters out routes without enough depth', () => {
+    const routes: RouteConfig<'home' | 'parent' | 'child'>[] = [
+      { path: '/', name: 'home' },
+      {
+        path: '/section', name: 'parent',
+        children: [
+          { path: 'page', name: 'child' },
+        ],
+      },
+    ]
+
+    window.location.hash = '#/'
+    const router = createRouter(routes)
+
+    const depth1: string[] = []
+    const sub = router.route$.pipe(routeAtDepth(1)).subscribe(r => depth1.push(r.name))
+
+    // '/' has matched.length=1, so depth 1 filter skips it
+    expect(depth1).toEqual([])
+
+    setHash('#/section/page')
+    expect(depth1).toEqual(['child'])
+
+    setHash('#/')
+    // Still only one emission — / is filtered out at depth 1
+    expect(depth1).toEqual(['child'])
+
+    sub.unsubscribe()
   })
 })

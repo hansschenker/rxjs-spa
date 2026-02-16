@@ -1,4 +1,4 @@
-import { EMPTY, defer, from, fromEvent, Observable, OperatorFunction, of, Subject } from 'rxjs'
+import { EMPTY, defer, from, fromEvent, Observable, OperatorFunction, of, Subject, Subscription } from 'rxjs'
 import { catchError, distinctUntilChanged, filter, map, shareReplay, startWith, switchMap, tap } from 'rxjs/operators'
 
 // ---------------------------------------------------------------------------
@@ -23,6 +23,19 @@ export interface RouterOptions {
    *   Requires server-side fallback to `index.html` for all routes.
    */
   mode?: RouterMode
+  /**
+   * Initial URL for SSR / testing.
+   * If provided, the router initializes in static mode (no window listeners).
+   * @example '/users/123'
+   */
+  initialUrl?: string
+}
+
+/** An entry in the matched route chain (root-first). */
+export interface MatchedSegment<N extends string = string> {
+  name: N
+  params: RouteParams
+  path: string
 }
 
 /** A matched route. */
@@ -35,19 +48,65 @@ export interface RouteMatch<N extends string = string> {
   query: QueryParams
   /** The matched path without query string (e.g. `/users/42`). */
   path: string
+  /**
+   * Full chain of matched route segments, root-first.
+   * For flat routes, contains a single entry. For nested routes,
+   * contains parent → child → grandchild etc.
+   */
+  matched: MatchedSegment<N>[]
 }
 
 /**
- * Map of path patterns → route names.
+ * Map of path patterns → route names (flat format).
  *
  * @example
  *   const routes = {
  *     '/':           'home',
  *     '/users':      'users',
  *     '/users/:id':  'user-detail',
- *   } satisfies RouteDefinition<'home' | 'users' | 'user-detail'>
+ *   } satisfies FlatRouteDefinition<'home' | 'users' | 'user-detail'>
  */
-export type RouteDefinition<N extends string> = Record<string, N>
+export type FlatRouteDefinition<N extends string> = Record<string, N>
+
+/**
+ * Tree-based route config with optional children for nesting.
+ *
+ * @example
+ *   const routes: RouteConfig<'users' | 'user-detail'>[] = [
+ *     {
+ *       path: '/users', name: 'users',
+ *       children: [
+ *         { path: ':id', name: 'user-detail' },
+ *       ],
+ *     },
+ *   ]
+ */
+export interface RouteConfig<N extends string> {
+  /** Path segment, e.g. '/users' or ':id'. Leading `/` is optional. */
+  path: string
+  /** Route name. */
+  name: N
+  /** Optional nested child routes. */
+  children?: RouteConfig<N>[]
+}
+
+/**
+ * Route definition: either a flat `Record<string, N>` or an array of `RouteConfig<N>`.
+ *
+ * @example
+ *   // Flat format (backward-compatible)
+ *   createRouter({ '/': 'home', '/users': 'users' })
+ *
+ *   // Nested format
+ *   createRouter([
+ *     { path: '/', name: 'home' },
+ *     { path: '/users', name: 'users-layout', children: [
+ *       { path: '', name: 'users-list' },
+ *       { path: ':id', name: 'user-detail' },
+ *     ]},
+ *   ])
+ */
+export type RouteDefinition<N extends string> = FlatRouteDefinition<N> | RouteConfig<N>[]
 
 export interface Router<N extends string> {
   /**
@@ -79,56 +138,232 @@ export interface Router<N extends string> {
   destroy(): void
 }
 
+/** Animation config for outlet enter/leave transitions. */
+export interface OutletAnimationConfig {
+  enter?: (el: Element) => Promise<void>
+  leave?: (el: Element) => Promise<void>
+}
+
+/**
+ * An outlet manages the lifecycle of child views inside a container element.
+ * It tears down the current view and clears the container on each route emission.
+ */
+export interface Outlet<N extends string> {
+  /** Observable of the current route match for this outlet. */
+  route$: Observable<RouteMatch<N>>
+  /** The container element. */
+  element: Element
+  /**
+   * Subscribe to route changes and render views. Returns a single Subscription
+   * that manages the outlet lifecycle. On each emission, the previous view's
+   * subscription is unsubscribed and `element.innerHTML` is cleared before
+   * calling `renderFn`.
+   */
+  subscribe(renderFn: (match: RouteMatch<N>) => Subscription | null): Subscription
+}
+
+// ---------------------------------------------------------------------------
+// Internal: route tree
+// ---------------------------------------------------------------------------
+
+interface InternalRouteNode<N extends string> {
+  /** Segment pattern — static string, ':param', or '*'. */
+  segment: string
+  /** Route name — always set. */
+  name: N
+  /** Nested children. */
+  children: InternalRouteNode<N>[]
+}
+
+/** Detect whether a route definition is the flat Record format or array config. */
+function isRouteConfigArray<N extends string>(
+  routes: RouteDefinition<N>,
+): routes is RouteConfig<N>[] {
+  return Array.isArray(routes)
+}
+
+/**
+ * Split a path into clean segments. Removes leading/trailing slashes and empty strings.
+ * Examples: '/users/:id' → ['users', ':id'], '/' → [], '' → []
+ */
+function toSegments(path: string): string[] {
+  return path.split('/').filter(Boolean)
+}
+
+/**
+ * Normalize any RouteDefinition into an internal tree of InternalRouteNode[].
+ * - Flat `Record<string, N>`: each key is split on `/` to create a single leaf node.
+ * - Array `RouteConfig<N>[]`: maps directly, recursing into children.
+ */
+function normalizeRoutes<N extends string>(
+  routes: RouteDefinition<N>,
+): InternalRouteNode<N>[] {
+  if (isRouteConfigArray(routes)) {
+    return routes.map((rc) => normalizeConfig(rc))
+  }
+  // Flat format — each pattern becomes a leaf (no children).
+  // We keep the flat matching approach for simplicity: each pattern is one node
+  // with segments derived from the full path.
+  return flatToNodes(routes)
+}
+
+function normalizeConfig<N extends string>(
+  rc: RouteConfig<N>,
+): InternalRouteNode<N> {
+  const segments = toSegments(rc.path)
+  const segment = segments.join('/')  // normalize away leading slash
+  return {
+    segment,
+    name: rc.name,
+    children: rc.children ? rc.children.map(normalizeConfig) : [],
+  }
+}
+
+/**
+ * Convert flat routes into an array of leaf nodes. Each entry is a complete
+ * path (all segments) in a single node with no children. The matching logic
+ * handles this via `matchSegment` consuming all segments at once.
+ */
+function flatToNodes<N extends string>(
+  routes: FlatRouteDefinition<N>,
+): InternalRouteNode<N>[] {
+  return (Object.entries(routes) as [string, N][]).map(([pattern, name]) => ({
+    segment: pattern === '*' ? '*' : toSegments(pattern).join('/'),
+    name,
+    children: [],
+  }))
+}
+
 // ---------------------------------------------------------------------------
 // Internal: route matching
 // ---------------------------------------------------------------------------
 
-function matchPattern(pattern: string, path: string): RouteParams | null {
-  const patternSegs = pattern.split('/')
-  const pathSegs = path.split('/')
+/**
+ * Try to match `nodeSegments` against the front of `pathSegments` starting
+ * at `offset`. Returns extracted params or null on mismatch.
+ */
+function matchSegments(
+  nodeSegments: string[],
+  pathSegments: string[],
+  offset: number,
+): RouteParams | null {
+  if (nodeSegments.length === 0) {
+    // Empty segment matches at current offset (like path: '' for index routes)
+    return {}
+  }
 
-  if (patternSegs.length !== pathSegs.length) return null
+  if (offset + nodeSegments.length > pathSegments.length) return null
 
   const params: RouteParams = {}
-
-  for (let i = 0; i < patternSegs.length; i++) {
-    const ps = patternSegs[i]
-    const ts = pathSegs[i]
-
-    if (ps.startsWith(':')) {
-      params[ps.slice(1)] = decodeURIComponent(ts)
-    } else if (ps !== ts) {
+  for (let i = 0; i < nodeSegments.length; i++) {
+    const ns = nodeSegments[i]
+    const ps = pathSegments[offset + i]
+    if (ns.startsWith(':')) {
+      params[ns.slice(1)] = decodeURIComponent(ps)
+    } else if (ns !== ps) {
       return null
     }
   }
-
   return params
 }
 
-function matchRoutes<N extends string>(
-  path: string,
+/**
+ * Recursively match a path against the internal route tree.
+ * Returns the deepest match with the full chain of matched ancestors.
+ */
+function matchRoutesTree<N extends string>(
+  pathSegments: string[],
   query: QueryParams,
-  routes: RouteDefinition<N>,
+  fullPath: string,
+  nodes: InternalRouteNode<N>[],
+  offset: number,
+  chain: MatchedSegment<N>[],
+  accParams: RouteParams,
 ): RouteMatch<N> | null {
-  let wildcard: { name: N } | null = null
+  let wildcardNode: InternalRouteNode<N> | null = null
 
-  for (const [pattern, name] of Object.entries(routes) as [string, N][]) {
-    if (pattern === '*') {
-      wildcard = { name }
+  for (const node of nodes) {
+    if (node.segment === '*') {
+      wildcardNode = node
       continue
     }
-    const params = matchPattern(pattern, path)
-    if (params !== null) {
-      return { name, params, query, path }
+
+    const nodeSegments = node.segment ? node.segment.split('/') : []
+    const params = matchSegments(nodeSegments, pathSegments, offset)
+    if (params === null) continue
+
+    const nextOffset = offset + nodeSegments.length
+    const mergedParams = { ...accParams, ...params }
+    const segmentPath = '/' + pathSegments.slice(0, nextOffset).join('/')
+    const matchEntry: MatchedSegment<N> = {
+      name: node.name,
+      params: mergedParams,
+      path: segmentPath,
+    }
+    const nextChain = [...chain, matchEntry]
+
+    // If this node has children, try to match deeper
+    if (node.children.length > 0) {
+      const childResult = matchRoutesTree(
+        pathSegments, query, fullPath, node.children,
+        nextOffset, nextChain, mergedParams,
+      )
+      if (childResult) return childResult
+
+      // No child matched — if all segments consumed, match the parent itself
+      if (nextOffset === pathSegments.length) {
+        return {
+          name: node.name,
+          params: mergedParams,
+          query,
+          path: fullPath,
+          matched: nextChain,
+        }
+      }
+      // Has children but none matched and segments remain — skip this node
+      continue
+    }
+
+    // Leaf node — all segments must be consumed
+    if (nextOffset === pathSegments.length) {
+      return {
+        name: node.name,
+        params: mergedParams,
+        query,
+        path: fullPath,
+        matched: nextChain,
+      }
     }
   }
 
-  // Fall back to wildcard if no specific route matched
-  if (wildcard) {
-    return { name: wildcard.name, params: {}, query, path }
+  // Wildcard fallback at this level
+  if (wildcardNode && offset <= pathSegments.length) {
+    const segmentPath = '/' + pathSegments.join('/')
+    const matchEntry: MatchedSegment<N> = {
+      name: wildcardNode.name,
+      params: accParams,
+      path: segmentPath,
+    }
+    return {
+      name: wildcardNode.name,
+      params: accParams,
+      query,
+      path: fullPath,
+      matched: [...chain, matchEntry],
+    }
   }
 
   return null
+}
+
+/** Top-level matching function used by createRouter. */
+function matchRoutes<N extends string>(
+  path: string,
+  query: QueryParams,
+  nodes: InternalRouteNode<N>[],
+): RouteMatch<N> | null {
+  const segments = toSegments(path)
+  return matchRoutesTree(segments, query, path, nodes, 0, [], {})
 }
 
 function parseQuery(search: string): QueryParams {
@@ -136,13 +371,15 @@ function parseQuery(search: string): QueryParams {
   const raw = search.startsWith('?') ? search.slice(1) : search
   if (!raw) return query
 
+  const decode = (str: string) => decodeURIComponent(str.replace(/\+/g, ' '))
+
   for (const pair of raw.split('&')) {
     if (!pair) continue
     const eqIndex = pair.indexOf('=')
     if (eqIndex === -1) {
-      query[decodeURIComponent(pair)] = ''
+      query[decode(pair)] = ''
     } else {
-      query[decodeURIComponent(pair.slice(0, eqIndex))] = decodeURIComponent(pair.slice(eqIndex + 1))
+      query[decode(pair.slice(0, eqIndex))] = decode(pair.slice(eqIndex + 1))
     }
   }
 
@@ -300,12 +537,42 @@ export function createRouter<N extends string>(
   options?: RouterOptions,
 ): Router<N> {
   const mode = options?.mode ?? 'hash'
+  const nodes = normalizeRoutes(routes)
 
+  // -------------------------------------------------------------------------
+  // SSR / Static Mode
+  // -------------------------------------------------------------------------
+  if (options?.initialUrl) {
+    const { path, query } = parseUrl(options.initialUrl)
+    const match = matchRoutes(path, query, nodes)
+
+    // Create a static observable for the initial route
+    const route$ = of(match).pipe(
+      filter((r): r is RouteMatch<N> => r !== null),
+      shareReplay({ bufferSize: 1, refCount: false })
+    )
+
+    return {
+      route$,
+      navigate: () => { }, // No-op in SSR
+      link: (p) => p,     // Just return the path
+      destroy: () => { },
+    }
+  }
+
+  // Ensure window exists for browser modes
+  if (typeof window === 'undefined') {
+    throw new Error('Window is undefined. Provide `initialUrl` for SSR.')
+  }
+
+  // -------------------------------------------------------------------------
+  // Hash Mode
+  // -------------------------------------------------------------------------
   if (mode === 'hash') {
     const route$ = fromEvent(window, 'hashchange').pipe(
       startWith(null),
       map(() => parseHash(window.location.hash)),
-      map(({ path, query }) => matchRoutes(path, query, routes)),
+      map(({ path, query }) => matchRoutes(path, query, nodes)),
       filter((r): r is RouteMatch<N> => r !== null),
       distinctUntilChanged((a, b) =>
         a.path === b.path && JSON.stringify(a.query) === JSON.stringify(b.query),
@@ -321,7 +588,7 @@ export function createRouter<N extends string>(
       link(path: string): string {
         return '#' + (path.startsWith('/') ? path : '/' + path)
       },
-      destroy() {},
+      destroy() { },
     }
   }
 
@@ -341,7 +608,7 @@ export function createRouter<N extends string>(
   const route$ = pathChange$.pipe(
     startWith(undefined),
     map(() => parsePathname()),
-    map(({ path, query }) => matchRoutes(path, query, routes)),
+    map(({ path, query }) => matchRoutes(path, query, nodes)),
     filter((r): r is RouteMatch<N> => r !== null),
     distinctUntilChanged((a, b) =>
       a.path === b.path && JSON.stringify(a.query) === JSON.stringify(b.query),
@@ -387,4 +654,141 @@ export function createRouter<N extends string>(
       document.removeEventListener('click', onClick)
     },
   }
+}
+
+// ---------------------------------------------------------------------------
+// Utils for SSR
+// ---------------------------------------------------------------------------
+
+function parseUrl(url: string): { path: string; query: QueryParams } {
+  const [path, search] = url.split('?')
+  return { path: path || '/', query: parseQuery(search || '') }
+}
+
+// ---------------------------------------------------------------------------
+// createOutlet — manages child view lifecycle
+// ---------------------------------------------------------------------------
+
+/**
+ * createOutlet(element, route$, animation?)
+ *
+ * Formalizes the router outlet pattern. On each route emission, the previous
+ * view's subscription is unsubscribed, `element.innerHTML` is cleared, and
+ * `renderFn` is called with the new route match.
+ *
+ * If `animation` is provided, a leave animation runs on the old content before
+ * clearing, and an enter animation runs on the new content after rendering.
+ *
+ * @example
+ *   const outlet = createOutlet(outletEl, guarded$)
+ *   const outletSub = outlet.subscribe((match) => {
+ *     switch (match.name) {
+ *       case 'home':  return homeView(outletEl, store)
+ *       case 'users': return usersView(outletEl, store, router)
+ *       default:      return null
+ *     }
+ *   })
+ *
+ * @example // with animation
+ *   import { fadeIn, fadeOut } from '@rxjs-spa/dom'
+ *   const outlet = createOutlet(outletEl, guarded$, {
+ *     enter: fadeIn(300),
+ *     leave: fadeOut(200),
+ *   })
+ */
+export function createOutlet<N extends string>(
+  element: Element,
+  route$: Observable<RouteMatch<N>>,
+  animation?: OutletAnimationConfig,
+): Outlet<N> {
+  return {
+    element,
+    route$,
+    subscribe(renderFn) {
+      let currentSub: Subscription | null = null
+      let leaveController: AbortController | null = null
+      const parentSub = new Subscription()
+
+      const routeSub = route$.subscribe((match) => {
+        // Cancel any in-progress leave animation
+        if (leaveController) {
+          leaveController.abort()
+          leaveController = null
+        }
+
+        const oldChild = element.firstElementChild
+        const oldSub = currentSub
+        currentSub = null
+
+        const mount = () => {
+          element.innerHTML = ''
+          currentSub = renderFn(match)
+          // Run enter animation on new content
+          if (animation?.enter && element.firstElementChild) {
+            animation.enter(element.firstElementChild)
+          }
+        }
+
+        if (animation?.leave && oldChild) {
+          // Run leave animation before clearing
+          const controller = new AbortController()
+          leaveController = controller
+
+          animation.leave(oldChild).then(() => {
+            if (controller.signal.aborted) return
+            leaveController = null
+            oldSub?.unsubscribe()
+            mount()
+          })
+        } else {
+          oldSub?.unsubscribe()
+          mount()
+        }
+      })
+
+      parentSub.add(routeSub)
+      parentSub.add(() => {
+        if (leaveController) leaveController.abort()
+        currentSub?.unsubscribe()
+        currentSub = null
+      })
+
+      return parentSub
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// routeAtDepth — filter route stream by nesting depth
+// ---------------------------------------------------------------------------
+
+/**
+ * routeAtDepth(depth)
+ *
+ * Operator that only emits when the route at the given nesting depth changes.
+ * Parent outlets pipe through `routeAtDepth(0)`, child outlets use depth 1, etc.
+ *
+ * Uses `distinctUntilChanged` on `matched[depth]` to avoid re-renders when
+ * only deeper children change.
+ *
+ * @example
+ *   // Parent layout only re-renders when top-level route changes:
+ *   router.route$.pipe(routeAtDepth(0))
+ *
+ *   // Child outlet only re-renders when depth-1 route changes:
+ *   router.route$.pipe(routeAtDepth(1))
+ */
+export function routeAtDepth<N extends string>(
+  depth: number,
+): OperatorFunction<RouteMatch<N>, RouteMatch<N>> {
+  return (source: Observable<RouteMatch<N>>): Observable<RouteMatch<N>> =>
+    source.pipe(
+      filter((r) => r.matched.length > depth),
+      distinctUntilChanged((a, b) => {
+        const am = a.matched[depth]
+        const bm = b.matched[depth]
+        if (!am || !bm) return false
+        return am.name === bm.name && JSON.stringify(am.params) === JSON.stringify(bm.params)
+      }),
+    )
 }

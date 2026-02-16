@@ -111,8 +111,8 @@ describe('@rxjs-spa/dom sinks', () => {
 
     const sub = renderList(
       ul,
-      (item) => item,
-      (item) => {
+      (item: string) => item,
+      (item: string) => {
         const li = document.createElement('li')
         li.textContent = item
         return li
@@ -202,8 +202,8 @@ describe('@rxjs-spa/dom sinks', () => {
     expect(created).toEqual(['a'])
     expect((ul.querySelector('span') as HTMLSpanElement).textContent).toBe('A2')
 
-    // internal event stream still works
-    ;(ul.querySelector('button') as HTMLButtonElement).click()
+      // internal event stream still works
+      ; (ul.querySelector('button') as HTMLButtonElement).click()
     expect(removed).toEqual(['a'])
 
     // remove item -> unsubscribes + removes node

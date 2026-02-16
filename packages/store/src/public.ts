@@ -128,7 +128,7 @@ export function ofType<A extends { type: string }, K extends A['type']>(
   ...types: [K, ...K[]]
 ): OperatorFunction<A, Extract<A, { type: K }>> {
   return filter((action): action is Extract<A, { type: K }> =>
-    types.includes(action.type as K),
+    (types as K[]).includes(action.type as K),
   )
 }
 

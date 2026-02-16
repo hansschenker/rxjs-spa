@@ -150,6 +150,28 @@ class BooleanFieldBuilder implements FieldSchema<boolean> {
 // s — fluent schema builder namespace
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// GroupFieldSchema — nested field group
+// ---------------------------------------------------------------------------
+
+export interface GroupFieldSchema<S extends SchemaShape> {
+  readonly __group: true
+  readonly shape: S
+}
+
+class GroupFieldBuilder<S extends SchemaShape> implements GroupFieldSchema<S> {
+  readonly __group = true as const
+  constructor(readonly shape: S) {}
+}
+
+export function isGroupSchema(entry: unknown): entry is GroupFieldSchema<SchemaShape> {
+  return entry !== null && typeof entry === 'object' && (entry as any).__group === true
+}
+
+// ---------------------------------------------------------------------------
+// s — fluent schema builder namespace
+// ---------------------------------------------------------------------------
+
 export const s = {
   string(initial = ''): StringFieldBuilder {
     return new StringFieldBuilder(initial)
@@ -160,30 +182,47 @@ export const s = {
   boolean(initial = false): BooleanFieldBuilder {
     return new BooleanFieldBuilder(initial)
   },
+  group<S extends SchemaShape>(shape: S): GroupFieldSchema<S> {
+    return new GroupFieldBuilder(shape)
+  },
 }
 
 // ---------------------------------------------------------------------------
 // Schema type helpers
 // ---------------------------------------------------------------------------
 
-export type SchemaShape = Record<string, FieldSchema<unknown>>
+/** A schema entry is either a leaf FieldSchema or a nested GroupFieldSchema. */
+export type SchemaShape = Record<string, FieldSchema<unknown> | GroupFieldSchema<any>>
 
 export type FormValues<S extends SchemaShape> = {
-  [K in keyof S]: S[K] extends FieldSchema<infer T> ? T : never
+  [K in keyof S]: S[K] extends GroupFieldSchema<infer Inner>
+    ? FormValues<Inner>
+    : S[K] extends FieldSchema<infer T>
+      ? T
+      : never
 }
 
 export type FormErrors<S extends SchemaShape> = {
-  [K in keyof S]: string | null
+  [K in keyof S]: S[K] extends GroupFieldSchema<infer Inner>
+    ? FormErrors<Inner>
+    : string | null
 }
 
 export type FormTouched<S extends SchemaShape> = {
-  [K in keyof S]: boolean
+  [K in keyof S]: S[K] extends GroupFieldSchema<infer Inner>
+    ? FormTouched<Inner>
+    : boolean
 }
 
 export function getInitialValues<S extends SchemaShape>(schema: S): FormValues<S> {
   const values: Record<string, unknown> = {}
   for (const key in schema) {
-    values[key] = schema[key].initial
+    const entry = schema[key]
+    if (isGroupSchema(entry)) {
+      values[key] = getInitialValues(entry.shape)
+    } else {
+      values[key] = (entry as FieldSchema<unknown>).initial
+    }
   }
   return values as FormValues<S>
 }
@@ -192,13 +231,56 @@ export function validateAll<S extends SchemaShape>(
   values: FormValues<S>,
   schema: S,
 ): FormErrors<S> {
-  const errors: Record<string, string | null> = {}
+  const errors: Record<string, unknown> = {}
   for (const key in schema) {
-    errors[key] = schema[key].validate(values[key] as never)
+    const entry = schema[key]
+    if (isGroupSchema(entry)) {
+      errors[key] = validateAll((values as any)[key], entry.shape)
+    } else {
+      errors[key] = (entry as FieldSchema<unknown>).validate((values as any)[key])
+    }
   }
   return errors as FormErrors<S>
 }
 
 export function isFormValid<S extends SchemaShape>(errors: FormErrors<S>): boolean {
-  return Object.values(errors).every((e) => e === null)
+  return Object.values(errors).every((e) => {
+    if (e !== null && typeof e === 'object') {
+      return isFormValid(e as FormErrors<SchemaShape>)
+    }
+    return e === null
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Cross-field validation
+// ---------------------------------------------------------------------------
+
+/**
+ * A form-level validator that receives all form values and returns a record
+ * of field names → error messages. Only non-empty entries are applied.
+ * Cross-field errors only take effect on fields that pass field-level validation.
+ */
+export type FormValidator<S extends SchemaShape> = (values: FormValues<S>) => Record<string, string>
+
+/**
+ * Merge field-level errors with cross-field validator errors.
+ * Cross-field errors only apply to fields whose field-level validation passes (error === null).
+ */
+export function mergeWithCrossFieldErrors<S extends SchemaShape>(
+  fieldErrors: FormErrors<S>,
+  validators: FormValidator<S>[],
+  values: FormValues<S>,
+): FormErrors<S> {
+  const merged = { ...fieldErrors } as Record<string, unknown>
+  for (const validator of validators) {
+    const crossErrors = validator(values)
+    for (const key in crossErrors) {
+      // Only apply if field-level validation passed
+      if (merged[key] === null && crossErrors[key]) {
+        merged[key] = crossErrors[key]
+      }
+    }
+  }
+  return merged as FormErrors<S>
 }

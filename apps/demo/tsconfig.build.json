@@ -1,7 +1,38 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "composite": true
+    "composite": true,
+    "noEmit": false,
+    "outDir": "dist"
   },
-  "files": [],
-  "references": []
+  "include": [
+    "src",
+    "vite.config.ts"
+  ],
+  "references": [
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/dom"
+    },
+    {
+      "path": "../../packages/router"
+    },
+    {
+      "path": "../../packages/store"
+    },
+    {
+      "path": "../../packages/http"
+    },
+    {
+      "path": "../../packages/errors"
+    },
+    {
+      "path": "../../packages/forms"
+    },
+    {
+      "path": "../../packages/persist"
+    }
+  ]
 }

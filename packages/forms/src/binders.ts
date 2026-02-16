@@ -1,7 +1,7 @@
 import { Observable, Subscription, fromEvent, merge } from 'rxjs'
 import { map, startWith } from 'rxjs/operators'
 import type { SchemaShape, FormValues } from './schema'
-import type { Form } from './form'
+import type { FormAccessor } from './form'
 
 // ---------------------------------------------------------------------------
 // bindInput — text / email / tel / textarea
@@ -9,7 +9,7 @@ import type { Form } from './form'
 
 export function bindInput<S extends SchemaShape, K extends keyof S>(
   input: HTMLInputElement | HTMLTextAreaElement,
-  form: Form<S>,
+  form: FormAccessor<S>,
   name: K,
 ): Subscription {
   const field = form.field(name)
@@ -45,7 +45,7 @@ export function bindInput<S extends SchemaShape, K extends keyof S>(
 
 export function bindCheckbox<S extends SchemaShape, K extends keyof S>(
   input: HTMLInputElement,
-  form: Form<S>,
+  form: FormAccessor<S>,
   name: K,
 ): Subscription {
   const field = form.field(name)
@@ -78,7 +78,7 @@ export function bindCheckbox<S extends SchemaShape, K extends keyof S>(
 
 export function bindSelect<S extends SchemaShape, K extends keyof S>(
   select: HTMLSelectElement,
-  form: Form<S>,
+  form: FormAccessor<S>,
   name: K,
 ): Subscription {
   const field = form.field(name)
@@ -130,7 +130,7 @@ export function bindError(el: HTMLElement, error$: Observable<string | null>): S
 
 export function bindField<S extends SchemaShape, K extends keyof S>(
   container: HTMLElement,
-  form: Form<S>,
+  form: FormAccessor<S>,
   name: K,
 ): Subscription {
   const sub = new Subscription()

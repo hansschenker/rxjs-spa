@@ -2,7 +2,7 @@ import { Subscription, combineLatest } from 'rxjs'
 import { map, switchMap } from 'rxjs/operators'
 import { createStore, ofType } from '@rxjs-spa/store'
 import { catchAndReport } from '@rxjs-spa/errors'
-import { attr, classToggle, events, mount, renderKeyedList, text } from '@rxjs-spa/dom'
+import { defineComponent, html } from '@rxjs-spa/dom'
 import type { Router, RouteParams } from '@rxjs-spa/router'
 import type { Store } from '@rxjs-spa/store'
 import type { GlobalState, GlobalAction } from '../store/global.store'
@@ -43,65 +43,18 @@ const INITIAL: UserDetailState = { user: null, posts: [], loading: false, error:
 // View
 // ---------------------------------------------------------------------------
 
-export function userDetailView(
-  container: Element,
-  _globalStore: Store<GlobalState, GlobalAction>,
-  router: Router<'home' | 'users' | 'user-detail'>,
-  params: RouteParams,
-): Subscription {
+export const userDetailView = defineComponent<{
+  globalStore: Store<GlobalState, GlobalAction>,
+  router: Router<any>,
+  params: RouteParams
+}>(({ router, params }) => {
   const { id } = params
-
-  // ── DOM ───────────────────────────────────────────────────────────────────
-  container.innerHTML = `
-    <section class="view user-detail-view">
-      <p><a id="back-link" href="${router.link('/users')}" class="back-link">← All users</a></p>
-
-      <div id="loading-msg" class="loading hidden">Loading…</div>
-      <div id="error-msg"   class="error hidden"></div>
-
-      <div id="profile-card" class="card profile-card hidden">
-        <div class="profile-header">
-          <div class="profile-avatar"></div>
-          <div>
-            <h1 id="user-name"></h1>
-            <p id="user-username" class="muted"></p>
-          </div>
-        </div>
-        <div class="profile-meta">
-          <span>✉ <span id="user-email"></span></span>
-          <span>📞 <span id="user-phone"></span></span>
-          <span>🌐 <a id="user-website" href="" target="_blank"></a></span>
-          <span>🏢 <span id="user-company"></span></span>
-          <span>📍 <span id="user-address"></span></span>
-        </div>
-      </div>
-
-      <div id="posts-section" class="hidden">
-        <h2>Posts</h2>
-        <ul id="post-list" class="post-list"></ul>
-      </div>
-    </section>
-  `
-
-  const loadingEl   = container.querySelector<HTMLElement>('#loading-msg')!
-  const errorEl     = container.querySelector<HTMLElement>('#error-msg')!
-  const profileCard = container.querySelector<HTMLElement>('#profile-card')!
-  const postsSection = container.querySelector<HTMLElement>('#posts-section')!
-  const postListEl  = container.querySelector<HTMLUListElement>('#post-list')!
-
-  const nameEl      = container.querySelector<HTMLElement>('#user-name')!
-  const usernameEl  = container.querySelector<HTMLElement>('#user-username')!
-  const emailEl     = container.querySelector<HTMLElement>('#user-email')!
-  const phoneEl     = container.querySelector<HTMLElement>('#user-phone')!
-  const websiteEl   = container.querySelector<HTMLAnchorElement>('#user-website')!
-  const companyEl   = container.querySelector<HTMLElement>('#user-company')!
-  const addressEl   = container.querySelector<HTMLElement>('#user-address')!
-  const avatarEls   = container.querySelectorAll<HTMLElement>('.profile-avatar')
 
   // ── Local store ───────────────────────────────────────────────────────────
   const store = createStore<UserDetailState, UserDetailAction>(userDetailReducer, INITIAL)
 
   // ── Effect: FETCH → parallel HTTP calls ───────────────────────────────────
+  // Note: we subscribe to this effect in the component body, which is fine
   const effectSub = store.actions$.pipe(
     ofType('FETCH'),
     switchMap(({ userId }) =>
@@ -119,54 +72,67 @@ export function userDetailView(
   ).subscribe(action => store.dispatch(action))
 
   // Trigger load
-  store.dispatch({ type: 'FETCH', userId: id })
+  // If id is present in params, fetch.
+  if (id) {
+    store.dispatch({ type: 'FETCH', userId: id })
+  }
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const hasUser$ = store.select(s => s.user !== null)
-  const user$    = store.select(s => s.user)
-  const posts$   = store.select(s => s.posts)
+  const user$ = store.select(s => s.user)
+  const posts$ = store.select(s => s.posts)
+  const loading$ = store.select(s => s.loading)
+  const error$ = store.select(s => s.error)
 
-  return mount(container, () => [
-    effectSub,
+  // Classes / Visibility
+  const loadingClass$ = loading$.pipe(map(l => l ? 'loading visible' : 'loading hidden'))
+  const errorClass$ = error$.pipe(map(e => e ? 'error visible' : 'error hidden'))
+  const contentClass$ = hasUser$.pipe(map(h => h ? 'visible' : 'hidden'))
 
-    // Loading / error visibility
-    classToggle(loadingEl,    'hidden')(store.select(s => !s.loading)),
-    classToggle(loadingEl,    'visible')(store.select(s => s.loading)),
-    classToggle(errorEl,      'hidden')(store.select(s => s.error === null)),
-    text(errorEl)(store.select(s => s.error ?? '')),
+  // ── Render ────────────────────────────────────────────────────────────────
+  return html`
+    <section class="view user-detail-view">
+      <p><a id="back-link" href="${router.link('/users')}" class="back-link">← All users</a></p>
 
-    // Profile card visibility
-    classToggle(profileCard,   'hidden')(hasUser$.pipe(map(h => !h))),
-    classToggle(postsSection,  'hidden')(hasUser$.pipe(map(h => !h))),
+      <div id="loading-msg" class="${loadingClass$}">Loading…</div>
+      <div id="error-msg"   class="${errorClass$}">${error$.pipe(map(e => e ?? ''))}</div>
 
-    // Profile fields (guard with nullish coalescing)
-    text(nameEl)(user$.pipe(map(u => u?.name ?? ''))),
-    text(usernameEl)(user$.pipe(map(u => u ? `@${u.username}` : ''))),
-    text(emailEl)(user$.pipe(map(u => u?.email ?? ''))),
-    text(phoneEl)(user$.pipe(map(u => u?.phone ?? ''))),
-    text(websiteEl)(user$.pipe(map(u => u?.website ?? ''))),
-    attr(websiteEl, 'href')(user$.pipe(map(u => u ? `https://${u.website}` : null))),
-    text(companyEl)(user$.pipe(map(u => u?.company.name ?? ''))),
-    text(addressEl)(user$.pipe(map(u => u ? `${u.address.street}, ${u.address.city}` : ''))),
+      <!-- Profile Card -->
+      <div id="profile-card" class="card profile-card ${contentClass$}">
+        <div class="profile-header">
+          <div class="profile-avatar">
+            ${user$.pipe(map(u => u?.name.charAt(0).toUpperCase() ?? ''))}
+          </div>
+          <div>
+            <h1 id="user-name">${user$.pipe(map(u => u?.name ?? ''))}</h1>
+            <p id="user-username" class="muted">${user$.pipe(map(u => u ? `@${u.username}` : ''))}</p>
+          </div>
+        </div>
+        <div class="profile-meta">
+          <span>✉ <span>${user$.pipe(map(u => u?.email ?? ''))}</span></span>
+          <span>📞 <span>${user$.pipe(map(u => u?.phone ?? ''))}</span></span>
+          <span>🌐 <a href="${user$.pipe(map(u => u ? `https://${u.website}` : ''))}" target="_blank">
+            ${user$.pipe(map(u => u?.website ?? ''))}
+          </a></span>
+          <span>🏢 <span>${user$.pipe(map(u => u?.company.name ?? ''))}</span></span>
+          <span>📍 <span>${user$.pipe(map(u => u ? `${u.address.street}, ${u.address.city}` : ''))}</span></span>
+        </div>
+      </div>
 
-    // Initials avatar
-    ...Array.from(avatarEls).map(el =>
-      text(el)(user$.pipe(map(u => u?.name.charAt(0).toUpperCase() ?? ''))),
-    ),
-
-    // Post list
-    renderKeyedList<Post>(
-      postListEl,
-      p => String(p.id),
-      p => {
-        const li = document.createElement('li')
-        li.className = 'post-item'
-        li.innerHTML = `
-          <strong class="post-title">${p.title}</strong>
-          <p class="post-body">${p.body}</p>
-        `
-        return { node: li }
-      },
-    )(posts$),
-  ])
-}
+      <!-- Posts Section -->
+      <div id="posts-section" class="${contentClass$}">
+        <h2>Posts</h2>
+        <ul id="post-list" class="post-list">
+          ${posts$.pipe(
+    map(posts => posts.map(p => html`
+              <li class="post-item">
+                <strong class="post-title">${p.title}</strong>
+                <p class="post-body">${p.body}</p>
+              </li>
+            `))
+  )}
+        </ul>
+      </div>
+    </section>
+  `
+})

@@ -12,7 +12,8 @@
     "rxjs": "7.8.2",
     "@rxjs-spa/core": "0.1.0",
     "@rxjs-spa/dom": "0.1.0",
-    "@rxjs-spa/router": "0.1.0"
+    "@rxjs-spa/router": "0.1.0",
+    "@rxjs-spa/store": "0.1.0"
   },
   "devDependencies": {
     "typescript": "*",

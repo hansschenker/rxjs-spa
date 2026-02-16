@@ -1,8 +1,7 @@
-import { Subject, Subscription } from 'rxjs'
-import { map, scan, startWith } from 'rxjs/operators'
-import { remember } from '@rxjs-spa/core'
+import { Subject } from 'rxjs'
+import { map } from 'rxjs/operators' // removed scan, startWith as they are likely inside createStore or not needed
+import { defineComponent, html } from '@rxjs-spa/dom'
 import { createStore } from '@rxjs-spa/store'
-import { classToggle, events, mount, text } from '@rxjs-spa/dom'
 import type { Store } from '@rxjs-spa/store'
 import type { GlobalState, GlobalAction } from '../store/global.store'
 
@@ -22,8 +21,8 @@ type HomeAction =
 
 function homeReducer(state: HomeState, action: HomeAction): HomeState {
   switch (action.type) {
-    case 'INC':   return { ...state, count: state.count + 1, message: `Incremented to ${state.count + 1}` }
-    case 'DEC':   return { ...state, count: state.count - 1, message: `Decremented to ${state.count - 1}` }
+    case 'INC': return { ...state, count: state.count + 1, message: `Incremented to ${state.count + 1}` }
+    case 'DEC': return { ...state, count: state.count - 1, message: `Decremented to ${state.count - 1}` }
     case 'RESET': return { count: 0, message: 'Counter reset.' }
   }
 }
@@ -32,20 +31,23 @@ function homeReducer(state: HomeState, action: HomeAction): HomeState {
 // View
 // ---------------------------------------------------------------------------
 
-/**
- * homeView(container, globalStore)
- *
- * Demonstrates:
- * - Local MVU store (count) via createStore + scan
- * - Reading from the global store (theme)
- * - Reactive DOM updates via @rxjs-spa/dom sinks
- */
-export function homeView(
-  container: Element,
-  globalStore: Store<GlobalState, GlobalAction>,
-): Subscription {
-  // ── DOM skeleton ──────────────────────────────────────────────────────────
-  container.innerHTML = `
+export const homeView = defineComponent<{ globalStore: Store<GlobalState, GlobalAction> }>(
+  ({ globalStore }) => {
+    // ── Local store ───────────────────────────────────────────────────────────
+    const store = createStore<HomeState, HomeAction>(homeReducer, { count: 0, message: '' })
+
+    // ── Selectors ─────────────────────────────────────────────────────────────
+    const count$ = store.select(s => s.count)
+    const message$ = store.select(s => s.message)
+    const theme$ = globalStore.select(s => s.theme)
+
+    // Class toggling via standard class attribute binding or helper?
+    // @rxjs-spa/dom html supports `class=${obs}` but for toggling specific classes based on condition?
+    // Standard lit-html style: `class="static ${cond ? 'active' : ''}"` inside the stream is easiest.
+    // Or we can assume `class` attribute binding supports generic observables.
+    const countClass$ = count$.pipe(map(c => c < 0 ? 'negative' : ''))
+
+    return html`
     <section class="view home-view">
       <h1>Welcome to rxjs-spa</h1>
       <p>A framework built entirely on <strong>RxJS + TypeScript</strong>.</p>
@@ -53,19 +55,19 @@ export function homeView(
       <div class="card">
         <h2>Counter — local MVU store</h2>
         <p class="counter-display">
-          Count: <strong id="count-value">0</strong>
+          Count: <strong id="count-value" class="${countClass$}">${count$}</strong>
         </p>
         <div class="btn-row">
-          <button id="dec-btn">−</button>
-          <button id="reset-btn">Reset</button>
-          <button id="inc-btn">+</button>
+          <button @click=${() => store.dispatch({ type: 'DEC' })}> − </button>
+          <button @click=${() => store.dispatch({ type: 'RESET' })}> Reset </button>
+          <button @click=${() => store.dispatch({ type: 'INC' })}> + </button>
         </div>
-        <p id="count-msg" class="count-msg"></p>
+        <p class="count-msg">${message$}</p>
       </div>
 
       <div class="card">
         <h2>Global store</h2>
-        <p>Current theme: <strong id="theme-display"></strong></p>
+        <p>Current theme: <strong id="theme-display">${theme$}</strong></p>
         <p class="hint">Use the nav bar to toggle it.</p>
       </div>
 
@@ -80,33 +82,6 @@ export function homeView(
         </ul>
       </div>
     </section>
-  `
-
-  // ── Elements ──────────────────────────────────────────────────────────────
-  const countValue = container.querySelector<HTMLElement>('#count-value')!
-  const countMsg   = container.querySelector<HTMLElement>('#count-msg')!
-  const incBtn     = container.querySelector<HTMLButtonElement>('#inc-btn')!
-  const decBtn     = container.querySelector<HTMLButtonElement>('#dec-btn')!
-  const resetBtn   = container.querySelector<HTMLButtonElement>('#reset-btn')!
-  const themeDisplay = container.querySelector<HTMLElement>('#theme-display')!
-
-  // ── Local store ───────────────────────────────────────────────────────────
-  const store = createStore<HomeState, HomeAction>(homeReducer, { count: 0, message: '' })
-
-  // ── Wire events → dispatch ────────────────────────────────────────────────
-  return mount(container, () => [
-    events(incBtn,   'click').subscribe(() => store.dispatch({ type: 'INC' })),
-    events(decBtn,   'click').subscribe(() => store.dispatch({ type: 'DEC' })),
-    events(resetBtn, 'click').subscribe(() => store.dispatch({ type: 'RESET' })),
-
-    // Render count
-    text(countValue)(store.select(s => String(s.count))),
-    text(countMsg)(store.select(s => s.message)),
-
-    // Highlight negative counts
-    classToggle(countValue, 'negative')(store.select(s => s.count < 0)),
-
-    // Read from global store
-    text(themeDisplay)(globalStore.select(s => s.theme)),
-  ])
-}
+    `
+  }
+)

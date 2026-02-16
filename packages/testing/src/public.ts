@@ -101,6 +101,7 @@ interface RouteMatch<N extends string = string> {
   params: Record<string, string>
   query: Record<string, string>
   path: string
+  matched: Array<{ name: N; params: Record<string, string>; path: string }>
 }
 
 interface Router<N extends string> {
