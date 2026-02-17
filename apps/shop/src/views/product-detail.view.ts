@@ -105,13 +105,10 @@ export const productDetailView = defineComponent<{
     map(([p, q]) => p ? `$${(p.price * q).toFixed(2)}` : ''),
   )
 
-  let currentQuantity = 1
-  quantity$.subscribe(q => { currentQuantity = q })
-
   function handleAddToCart() {
-    const product = store.getState().product
+    const { product, selectedQuantity } = store.getState()
     if (product) {
-      cartStore.dispatch({ type: 'ADD_TO_CART', product, quantity: currentQuantity })
+      cartStore.dispatch({ type: 'ADD_TO_CART', product, quantity: selectedQuantity })
       cartStore.dispatch({ type: 'OPEN_DRAWER' })
     }
   }
@@ -144,9 +141,9 @@ export const productDetailView = defineComponent<{
             <p class="product-description">${description$}</p>
 
             <div class="quantity-control">
-              <button class="btn btn-outline btn-sm" @click=${() => store.dispatch({ type: 'SET_QUANTITY', quantity: currentQuantity - 1 })}>-</button>
+              <button class="btn btn-outline btn-sm" @click=${() => store.dispatch({ type: 'SET_QUANTITY', quantity: store.getState().selectedQuantity - 1 })}>-</button>
               <span class="quantity-value">${quantity$}</span>
-              <button class="btn btn-outline btn-sm" @click=${() => store.dispatch({ type: 'SET_QUANTITY', quantity: currentQuantity + 1 })}>+</button>
+              <button class="btn btn-outline btn-sm" @click=${() => store.dispatch({ type: 'SET_QUANTITY', quantity: store.getState().selectedQuantity + 1 })}>+</button>
               <span class="quantity-total">${totalPrice$}</span>
             </div>
 

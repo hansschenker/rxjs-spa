@@ -8,6 +8,31 @@ import { findFirstElement } from './animation'
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * An Observable backed by a BehaviorSubject — exposes a `snapshot()` method
+ * for synchronous access to the current value.
+ *
+ * Passed as `item$` inside `list()` and `renderKeyedComponents()` callbacks.
+ * Use `snapshot()` in event handlers where you need the latest value:
+ *
+ * ```ts
+ * list(items$, i => i.id, (item$) => html`
+ *   <button @click=${() => dispatch(item$.snapshot().id)}>Go</button>
+ * `)
+ * ```
+ */
+export interface LiveValue<T> extends Observable<T> {
+  /** Read the current value synchronously. */
+  snapshot(): T
+}
+
+/** Wrap a BehaviorSubject as a LiveValue (Observable + snapshot). */
+export function createLiveValue<T>(subject: BehaviorSubject<T>): LiveValue<T> {
+  const obs = subject.asObservable() as LiveValue<T>
+  obs.snapshot = () => subject.value
+  return obs
+}
+
 /** Result of a tagged template literal call. */
 export interface TemplateResult {
   /** The DOM fragment ready to insert into the document. */
@@ -41,7 +66,7 @@ export interface ListBinding<T = unknown> {
   __list: true
   items$: Observable<readonly T[]>
   keyFn: (item: T, index: number) => string
-  templateFn: (item$: Observable<T>, key: string) => TemplateResult
+  templateFn: (item$: LiveValue<T>, key: string) => TemplateResult
   enter?: AnimateFn
   leave?: AnimateFn
 }
@@ -596,7 +621,7 @@ function bindList(anchor: Node, binding: ListBinding, sub: Subscription): void {
         let view = views.get(key)
         if (!view) {
           const input = new BehaviorSubject<unknown>(item)
-          const result = binding.templateFn(input.asObservable() as Observable<never>, key)
+          const result = binding.templateFn(createLiveValue(input) as LiveValue<never>, key)
           const nodes = Array.from(result.fragment.childNodes)
           view = { nodes, sub: result.sub, input }
           views.set(key, view)
@@ -847,7 +872,7 @@ export function when(
 export function list<T>(
   items$: Observable<readonly T[]>,
   keyFn: (item: T, index: number) => string,
-  templateFn: (item$: Observable<T>, key: string) => TemplateResult,
+  templateFn: (item$: LiveValue<T>, key: string) => TemplateResult,
   animation?: AnimationConfig,
 ): ListBinding<T> {
   return {

@@ -3,7 +3,6 @@ import { defineComponent, html, when, list } from '@rxjs-spa/dom'
 import type { Router } from '@rxjs-spa/router'
 import type { Store } from '@rxjs-spa/store'
 import type { CartState, CartAction } from '../store/cart.store'
-import type { CartItem } from '../types'
 
 // ---------------------------------------------------------------------------
 // View
@@ -45,8 +44,6 @@ export const cartView = defineComponent<{
               const qty$ = item$.pipe(map(i => String(i.quantity)))
               const lineTotal$ = item$.pipe(map(i => '$' + (i.product.price * i.quantity).toFixed(2)))
               const productLink$ = item$.pipe(map(i => router.link('/product/' + i.product.id)))
-              let currentItem: CartItem | null = null
-              item$.subscribe(i => { currentItem = i })
               return html`
                 <div class="cart-item">
                   <img class="cart-item-img" src="${image$}" alt="${title$}" />
@@ -60,18 +57,18 @@ export const cartView = defineComponent<{
                   <div class="cart-item-actions">
                     <div class="quantity-control">
                       <button class="btn btn-outline btn-sm"
-                        @click=${() => { if (currentItem) cartStore.dispatch({ type: 'UPDATE_QUANTITY', productId: currentItem.product.id, quantity: currentItem.quantity - 1 }) }}>
+                        @click=${() => { const ci = item$.snapshot(); cartStore.dispatch({ type: 'UPDATE_QUANTITY', productId: ci.product.id, quantity: ci.quantity - 1 }) }}>
                         -
                       </button>
                       <span class="quantity-value">${qty$}</span>
                       <button class="btn btn-outline btn-sm"
-                        @click=${() => { if (currentItem) cartStore.dispatch({ type: 'UPDATE_QUANTITY', productId: currentItem.product.id, quantity: currentItem.quantity + 1 }) }}>
+                        @click=${() => { const ci = item$.snapshot(); cartStore.dispatch({ type: 'UPDATE_QUANTITY', productId: ci.product.id, quantity: ci.quantity + 1 }) }}>
                         +
                       </button>
                     </div>
                     <span class="cart-item-total">${lineTotal$}</span>
                     <button class="btn btn-danger btn-sm"
-                      @click=${() => { if (currentItem) cartStore.dispatch({ type: 'REMOVE_FROM_CART', productId: currentItem.product.id }) }}>
+                      @click=${() => cartStore.dispatch({ type: 'REMOVE_FROM_CART', productId: item$.snapshot().product.id })}>
                       Remove
                     </button>
                   </div>

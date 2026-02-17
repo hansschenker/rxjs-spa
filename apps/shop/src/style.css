@@ -67,6 +67,10 @@ h1 { font-size: 1.75rem; font-weight: 700; }
 h2 { font-size: 1.35rem; font-weight: 600; }
 h3 { font-size: 1.1rem; font-weight: 600; }
 
+.hidden {
+  display: none !important;
+}
+
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 
 .btn {

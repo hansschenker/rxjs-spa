@@ -27,7 +27,7 @@ export type CartAction =
 // Reducer
 // ---------------------------------------------------------------------------
 
-function cartReducer(state: CartState, action: CartAction): CartState {
+export function cartReducer(state: CartState, action: CartAction): CartState {
   switch (action.type) {
     case 'ADD_TO_CART': {
       const qty = action.quantity ?? 1
@@ -72,9 +72,11 @@ function cartReducer(state: CartState, action: CartAction): CartState {
 // Store (persisted to localStorage)
 // ---------------------------------------------------------------------------
 
+export const INITIAL_CART_STATE: CartState = { items: [], drawerOpen: false }
+
 export const cartStore = createPersistedStore<CartState, CartAction>(
   cartReducer,
-  { items: [], drawerOpen: false },
+  INITIAL_CART_STATE,
   'rxjs-shop:cart',
   {
     pick: ['items'],

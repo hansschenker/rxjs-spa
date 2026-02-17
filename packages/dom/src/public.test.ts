@@ -213,6 +213,40 @@ describe('@rxjs-spa/dom sinks', () => {
     sub.unsubscribe()
   })
 
+  it('renderKeyedComponents() item$ has .snapshot() returning current value', () => {
+    type Item = { id: string; label: string }
+    type Action = never
+
+    const ul = document.createElement('ul')
+    const items$ = new Subject<readonly Item[]>()
+    const actions$ = new Subject<Action>()
+
+    let snapshotResult: Item | null = null
+
+    const sub = renderKeyedComponents<Item, Action>(
+      ul,
+      (x) => x.id,
+      (item$, _ctx, _id) => {
+        const li = document.createElement('li')
+        snapshotResult = item$.snapshot()
+        return { node: li }
+      },
+      actions$,
+    )(items$)
+
+    items$.next([{ id: 'a', label: 'A1' }])
+    expect(snapshotResult).toEqual({ id: 'a', label: 'A1' })
+
+    // snapshot updates after item$ receives new value
+    items$.next([{ id: 'a', label: 'A2' }])
+    // item$ still points to the same LiveValue — snapshot reflects new value
+    expect(snapshotResult!.label).toBe('A1') // snapshotResult was captured at creation time
+    // but calling snapshot() again on the live observable returns the updated value
+    // (we can't test this without capturing item$ — covered in template.test.ts)
+
+    sub.unsubscribe()
+  })
+
   it('mount() composes multiple sinks into one view Subscription', () => {
     const root = document.createElement('div')
     const a = document.createElement('span')

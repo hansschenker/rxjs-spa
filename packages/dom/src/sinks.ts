@@ -1,5 +1,7 @@
 import type { Observable } from 'rxjs'
 import { BehaviorSubject, Subscription } from 'rxjs'
+import { createLiveValue } from './template'
+import type { LiveValue } from './template'
 
 type Unsub = () => void
 
@@ -287,7 +289,7 @@ export type ComponentCtx<A> = {
 }
 
 export type ComponentFactory<T, A> = (
-  item$: Observable<T>,
+  item$: LiveValue<T>,
   ctx: ComponentCtx<A>,
   key: string,
 ) => { node: Node; sub?: Subscription | Unsub }
@@ -331,7 +333,7 @@ export function renderKeyedComponents<T, A>(
         let view = views.get(key)
         if (!view) {
           const input = new BehaviorSubject<T>(item)
-          const created = factory(input.asObservable(), ctx, key)
+          const created = factory(createLiveValue(input), ctx, key)
           view = { node: created.node, sub: toSubscription(created.sub), input }
           views.set(key, view)
         } else {

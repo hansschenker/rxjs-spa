@@ -407,6 +407,76 @@ describe('list() — keyed list rendering', () => {
     expect(container.querySelectorAll('li').length).toBe(0)
     sub.unsubscribe()
   })
+
+  it('item$ has .snapshot() returning current value', () => {
+    const items$ = new BehaviorSubject<Item[]>([
+      { id: '1', name: 'Alice' },
+    ])
+
+    let capturedSnapshot: Item | null = null
+
+    const result = html`<ul>${list(
+      items$,
+      i => i.id,
+      (item$, key) => {
+        capturedSnapshot = item$.snapshot()
+        return html`<li>${item$.pipe(map(i => i.name))}</li>`
+      },
+    )}</ul>`
+    const { sub } = mount(result)
+
+    expect(capturedSnapshot).toEqual({ id: '1', name: 'Alice' })
+    sub.unsubscribe()
+  })
+
+  it('.snapshot() updates when item is updated', () => {
+    const items$ = new BehaviorSubject<Item[]>([
+      { id: '1', name: 'Alice' },
+    ])
+
+    let itemRef: { snapshot(): Item } | null = null
+
+    const result = html`<ul>${list(
+      items$,
+      i => i.id,
+      (item$, key) => {
+        itemRef = item$
+        return html`<li>${item$.pipe(map(i => i.name))}</li>`
+      },
+    )}</ul>`
+    const { sub } = mount(result)
+
+    expect(itemRef!.snapshot().name).toBe('Alice')
+
+    items$.next([{ id: '1', name: 'Alice Updated' }])
+    expect(itemRef!.snapshot().name).toBe('Alice Updated')
+
+    sub.unsubscribe()
+  })
+
+  it('.snapshot() works inside event handlers', () => {
+    const items$ = new BehaviorSubject<Item[]>([
+      { id: '1', name: 'Alice' },
+    ])
+
+    const dispatched: string[] = []
+
+    const result = html`<div>${list(
+      items$,
+      i => i.id,
+      (item$, key) => html`<button @click=${() => dispatched.push(item$.snapshot().name)}>Go</button>`,
+    )}</div>`
+    const { container, sub } = mount(result)
+
+    container.querySelector('button')!.click()
+    expect(dispatched).toEqual(['Alice'])
+
+    items$.next([{ id: '1', name: 'Bob' }])
+    container.querySelector('button')!.click()
+    expect(dispatched).toEqual(['Alice', 'Bob'])
+
+    sub.unsubscribe()
+  })
 })
 
 describe('html tagged template — nested templates', () => {

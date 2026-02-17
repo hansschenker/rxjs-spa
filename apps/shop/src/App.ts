@@ -91,8 +91,6 @@ export const App = defineComponent<{ router: Router<ShopRoute> }>(({ router }) =
                   const image$ = item$.pipe(map(i => i.product.image))
                   const linePrice$ = item$.pipe(map(i => `$${(i.product.price * i.quantity).toFixed(2)}`))
                   const qty$ = item$.pipe(map(i => String(i.quantity)))
-                  let currentItem: { product: { id: number } } | null = null
-                  item$.subscribe(i => { currentItem = i })
                   return html`
                     <li class="drawer-item">
                       <img class="drawer-item-img" src="${image$}" alt="${title$}" />
@@ -101,7 +99,7 @@ export const App = defineComponent<{ router: Router<ShopRoute> }>(({ router }) =
                         <p class="drawer-item-price">${linePrice$}</p>
                         <span class="drawer-item-qty">Qty: ${qty$}</span>
                       </div>
-                      <button class="drawer-item-remove" @click=${() => { if (currentItem) cartStore.dispatch({ type: 'REMOVE_FROM_CART', productId: currentItem.product.id }) }}>x</button>
+                      <button class="drawer-item-remove" @click=${() => cartStore.dispatch({ type: 'REMOVE_FROM_CART', productId: item$.snapshot().product.id })}>x</button>
                     </li>
                   `
                 })}

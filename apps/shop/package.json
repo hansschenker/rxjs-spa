@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b tsconfig.build.json && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "dependencies": {
     "rxjs": "7.8.2",
