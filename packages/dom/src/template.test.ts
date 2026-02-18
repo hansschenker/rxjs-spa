@@ -185,6 +185,16 @@ describe('html tagged template — event binding', () => {
     expect(receivedEvent).toBeInstanceOf(Event)
     sub.unsubscribe()
   })
+
+  it('supports kebab-case custom event names', () => {
+    let fired = false
+    const result = html`<div @custom-event=${() => { fired = true }}></div>`
+    const { container, sub } = mount(result)
+
+    container.querySelector('div')!.dispatchEvent(new Event('custom-event'))
+    expect(fired).toBe(true)
+    sub.unsubscribe()
+  })
 })
 
 describe('html tagged template — property binding', () => {
@@ -203,6 +213,14 @@ describe('html tagged template — property binding', () => {
     expect((container.querySelector('input') as HTMLInputElement).value).toBe('initial')
     value$.next('updated')
     expect((container.querySelector('input') as HTMLInputElement).value).toBe('updated')
+    sub.unsubscribe()
+  })
+
+  it('supports property names with dashes (custom element props)', () => {
+    const result = html`<div .custom-prop=${'value'}></div>`
+    const { container, sub } = mount(result)
+
+    expect((container.querySelector('div') as any)['custom-prop']).toBe('value')
     sub.unsubscribe()
   })
 })
@@ -232,6 +250,17 @@ describe('html tagged template — boolean attribute', () => {
     expect(container.querySelector('input')!.hasAttribute('disabled')).toBe(false)
     disabled$.next(true)
     expect(container.querySelector('input')!.hasAttribute('disabled')).toBe(true)
+    sub.unsubscribe()
+  })
+
+  it('supports kebab-case boolean attributes', () => {
+    const hidden$ = new BehaviorSubject(true)
+    const result = html`<div ?aria-hidden=${hidden$}></div>`
+    const { container, sub } = mount(result)
+
+    expect(container.querySelector('div')!.hasAttribute('aria-hidden')).toBe(true)
+    hidden$.next(false)
+    expect(container.querySelector('div')!.hasAttribute('aria-hidden')).toBe(false)
     sub.unsubscribe()
   })
 })
