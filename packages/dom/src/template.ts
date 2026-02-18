@@ -170,16 +170,17 @@ export function prepareTemplate(strings: TemplateStringsArray): PreparedTemplate
 
   // Pre-process special attribute prefixes (@event, .prop, ?bool) into data attributes
   // so the HTML parser doesn't mangle them.
+  const slotNamePattern = '[A-Za-z_][\\w:-]*'
   markup = markup.replace(
-    /\s@([a-zA-Z]+)=/g,
+    new RegExp(`\\s@(${slotNamePattern})=`, 'g'),
     (_, name) => ` data-rx-event-${name}=`,
   )
   markup = markup.replace(
-    /\s\.([a-zA-Z]+)=/g,
+    new RegExp(`\\s\\.(${slotNamePattern})=`, 'g'),
     (_, name) => ` data-rx-prop-${name}=`,
   )
   markup = markup.replace(
-    /\s\?([a-zA-Z]+)=/g,
+    new RegExp(`\\s\\?(${slotNamePattern})=`, 'g'),
     (_, name) => ` data-rx-boolattr-${name}=`,
   )
 
