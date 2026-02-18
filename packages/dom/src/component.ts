@@ -1,5 +1,6 @@
 import { Subscription } from 'rxjs'
 import type { TemplateResult } from './template'
+import { handleDomError } from './error-handler'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,9 +92,13 @@ export function defineComponent<P>(
     queueMicrotask(() => {
       if (compositeSub.closed) return
       for (const fn of mountCallbacks) {
-        const cleanup = fn()
-        if (typeof cleanup === 'function') {
-          destroyCallbacks.push(cleanup)
+        try {
+          const cleanup = fn()
+          if (typeof cleanup === 'function') {
+            destroyCallbacks.push(cleanup)
+          }
+        } catch (e) {
+          handleDomError(e, 'defineComponent/onMount')
         }
       }
     })
@@ -101,7 +106,11 @@ export function defineComponent<P>(
     // Wire onDestroy callbacks to run on unsubscribe
     compositeSub.add(() => {
       for (const fn of destroyCallbacks) {
-        fn()
+        try {
+          fn()
+        } catch (e) {
+          handleDomError(e, 'defineComponent/onDestroy')
+        }
       }
     })
 

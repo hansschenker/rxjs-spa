@@ -1,0 +1,549 @@
+/* ---------------------------------------------------------------------------
+   rxjs-spa — Kanban Board Styles (Trello-inspired)
+   --------------------------------------------------------------------------- */
+
+:root {
+  --board-bg: #0079bf;
+  --header-bg: rgba(0, 0, 0, 0.15);
+  --column-bg: #ebecf0;
+  --card-bg: #ffffff;
+  --text: #172b4d;
+  --text-muted: #5e6c84;
+  --text-light: #6b778c;
+  --border: #dfe1e6;
+  --accent: #0079bf;
+  --accent-hover: #026aa7;
+  --danger: #eb5a46;
+  --danger-hover: #cf513d;
+  --radius: 8px;
+  --radius-sm: 4px;
+  --shadow-card: 0 1px 0 rgba(9, 30, 66, 0.25);
+  --shadow-card-hover: 0 2px 4px rgba(9, 30, 66, 0.2);
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+}
+
+/* ── Reset ──────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--board-bg);
+  color: var(--text);
+  line-height: 1.4;
+}
+
+#app {
+  height: 100%;
+}
+
+/* ── App layout ─────────────────────────────────────────────────────────── */
+
+.kanban-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.kanban-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 1rem;
+  background: var(--header-bg);
+  backdrop-filter: blur(4px);
+  flex-shrink: 0;
+}
+
+.kanban-header h1 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+
+.header-subtitle {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.15);
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Board ──────────────────────────────────────────────────────────────── */
+
+.kanban-board {
+  flex: 1;
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  align-items: flex-start;
+}
+
+/* Custom scrollbar for the board */
+.kanban-board::-webkit-scrollbar {
+  height: 10px;
+}
+
+.kanban-board::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 5px;
+}
+
+.kanban-board::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 5px;
+}
+
+.kanban-board::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+/* ── Column ─────────────────────────────────────────────────────────────── */
+
+.kanban-column {
+  flex: 0 0 272px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  background: var(--column-bg);
+  border-radius: var(--radius);
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+.kanban-column.drag-over {
+  background: #d6dadf;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* ── Column header ──────────────────────────────────────────────────────── */
+
+.column-header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.625rem 0.5rem 0.375rem 0.75rem;
+  flex-shrink: 0;
+}
+
+.column-title {
+  flex: 1;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  padding: 0.125rem 0.25rem;
+  border-radius: var(--radius-sm);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.column-title:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.column-title-input {
+  flex: 1;
+  font-family: var(--font);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+  padding: 0.125rem 0.25rem;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  outline: none;
+  min-width: 0;
+}
+
+.column-count {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.08);
+  padding: 0.0625rem 0.375rem;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.column-menu-btn {
+  font-size: 1.125rem;
+  color: var(--text-light);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1;
+}
+
+.column-menu-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: var(--danger);
+}
+
+/* ── Column cards ───────────────────────────────────────────────────────── */
+
+.column-cards {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 0.5rem;
+  min-height: 4px;
+}
+
+.column-cards::-webkit-scrollbar {
+  width: 6px;
+}
+
+.column-cards::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.column-cards::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+}
+
+/* ── Column footer ──────────────────────────────────────────────────────── */
+
+.column-footer {
+  padding: 0.375rem 0.5rem 0.5rem;
+  flex-shrink: 0;
+}
+
+/* ── Card ───────────────────────────────────────────────────────────────── */
+
+.kanban-card {
+  position: relative;
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 0.5rem;
+  padding: 0.5rem 0.5rem 0.375rem;
+  cursor: grab;
+  transition: box-shadow 0.15s, opacity 0.15s, transform 0.15s;
+}
+
+.kanban-card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+.kanban-card:active {
+  cursor: grabbing;
+}
+
+.kanban-card.dragging {
+  opacity: 0.4;
+  transform: rotate(2deg);
+  box-shadow: 0 4px 12px rgba(9, 30, 66, 0.3);
+}
+
+/* ── Card content ───────────────────────────────────────────────────────── */
+
+.card-content {
+  min-height: 20px;
+}
+
+.card-label {
+  height: 8px;
+  border-radius: 4px;
+  margin-bottom: 0.375rem;
+  min-width: 40px;
+  max-width: 60px;
+}
+
+.card-title {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--text);
+  word-wrap: break-word;
+  line-height: 1.4;
+}
+
+.card-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+  line-height: 1.4;
+}
+
+/* ── Card actions (hover overlay) ───────────────────────────────────────── */
+
+.card-actions {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  display: flex;
+  gap: 0.125rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.kanban-card:hover .card-actions {
+  opacity: 1;
+}
+
+.card-btn {
+  width: 26px;
+  height: 26px;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-light);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  padding: 0;
+  line-height: 1;
+}
+
+.card-btn:hover {
+  background: rgba(0, 0, 0, 0.12);
+  color: var(--text);
+}
+
+.card-btn-delete:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* ── Card edit form ─────────────────────────────────────────────────────── */
+
+.card-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.card-edit-title {
+  font-family: var(--font);
+  font-size: 0.875rem;
+  padding: 0.375rem 0.5rem;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  outline: none;
+  color: var(--text);
+}
+
+.card-edit-desc {
+  font-family: var(--font);
+  font-size: 0.8125rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  resize: vertical;
+  color: var(--text);
+  transition: border-color 0.15s;
+}
+
+.card-edit-desc:focus {
+  border-color: var(--accent);
+}
+
+/* ── Color picker ───────────────────────────────────────────────────────── */
+
+.color-picker {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.15s;
+  padding: 0;
+}
+
+.color-swatch:hover {
+  transform: scale(1.15);
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+.color-swatch.active {
+  border-color: var(--text);
+  transform: scale(1.15);
+}
+
+/* ── Card edit actions ──────────────────────────────────────────────────── */
+
+.card-edit-actions {
+  display: flex;
+  gap: 0.375rem;
+}
+
+/* ── Add card ───────────────────────────────────────────────────────────── */
+
+.add-card-btn {
+  width: 100%;
+  text-align: left;
+  font-family: var(--font);
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  padding: 0.375rem 0.5rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.add-card-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text);
+}
+
+.add-card-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.add-card-input {
+  font-family: var(--font);
+  font-size: 0.875rem;
+  padding: 0.5rem;
+  border: none;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  outline: none;
+  resize: none;
+  color: var(--text);
+}
+
+.add-card-input:focus {
+  box-shadow: var(--shadow-card-hover);
+}
+
+.add-card-actions {
+  display: flex;
+  gap: 0.375rem;
+  align-items: center;
+}
+
+/* ── Add column ─────────────────────────────────────────────────────────── */
+
+.add-column-wrapper {
+  flex: 0 0 272px;
+}
+
+.add-column-btn {
+  width: 100%;
+  text-align: left;
+  font-family: var(--font);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: var(--radius);
+  padding: 0.625rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.add-column-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.add-column-form {
+  background: var(--column-bg);
+  border-radius: var(--radius);
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.add-column-input {
+  font-family: var(--font);
+  font-size: 0.875rem;
+  padding: 0.5rem;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  outline: none;
+  color: var(--text);
+}
+
+.add-column-actions {
+  display: flex;
+  gap: 0.375rem;
+  align-items: center;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.btn {
+  font-family: var(--font);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.375rem 0.75rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn-ghost {
+  background: none;
+  color: var(--text-light);
+  font-size: 1.125rem;
+  padding: 0.25rem 0.5rem;
+  line-height: 1;
+}
+
+.btn-ghost:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text);
+}
+
+/* ── Utilities ──────────────────────────────────────────────────────────── */
+
+.hidden {
+  display: none !important;
+}
+
+.is-hidden {
+  display: none !important;
+}

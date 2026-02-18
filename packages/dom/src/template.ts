@@ -1,6 +1,7 @@
 import { BehaviorSubject, isObservable, Observable, Subscription } from 'rxjs'
 import { distinctUntilChanged } from 'rxjs/operators'
 import { escapeHtml } from './sinks'
+import { handleDomError } from './error-handler'
 import type { AnimateFn, AnimationConfig } from './animation'
 import { findFirstElement } from './animation'
 
@@ -340,11 +341,19 @@ function bindSlots(
 ): Subscription {
   const sub = new Subscription()
 
+  // Resolve all node paths up front before any subscription is created.
+  // Synchronous BehaviorSubject-derived streams can fire immediately inside
+  // bindConditional/bindList, inserting nodes into the fragment and shifting
+  // sibling indices — causing later resolveNode calls to miss their targets.
+  const nodes: (Node | undefined)[] = prepared.slots.map((_, i) =>
+    resolveNode(fragment, prepared.paths[i]),
+  )
+
   for (let i = 0; i < prepared.slots.length; i++) {
     const slot = prepared.slots[i]
     const path = prepared.paths[i]
     const value = values[slot.index]
-    const node = resolveNode(fragment, path)
+    const node = nodes[i]
     if (!node) {
       console.warn(`[rxjs-spa/dom] Slot ${slot.kind}[${slot.index}] path [${path}] could not be resolved — skipping.`, { prepared, fragment, slotIndex: i })
       continue
@@ -419,8 +428,9 @@ function bindTextSlot(commentNode: Node, value: unknown, sub: Subscription, hydr
     const wrapper = document.createElement('span')
     parent.replaceChild(wrapper, commentNode)
     if (isObservable(value.value)) {
-      sub.add((value.value as Observable<string>).subscribe((v) => {
-        wrapper.innerHTML = v
+      sub.add((value.value as Observable<string>).subscribe({
+        next: (v) => { wrapper.innerHTML = v },
+        error: (e) => handleDomError(e, 'bindTextSlot/unsafeHtml'),
       }))
     } else {
       wrapper.innerHTML = value.value as string
@@ -437,42 +447,45 @@ function bindTextSlot(commentNode: Node, value: unknown, sub: Subscription, hydr
     let childSub: Subscription | null = null
     let childNodes: Node[] = []
 
-    sub.add((value as Observable<unknown>).subscribe((v) => {
-      // 1. Snapshot valid parent
-      const p = anchor.parentNode
-      if (!p) return
+    sub.add((value as Observable<unknown>).subscribe({
+      next: (v) => {
+        // 1. Snapshot valid parent
+        const p = anchor.parentNode
+        if (!p) return
 
-      // 2. SSR Cleanup (Once)
-      if (!hasHydrated && hydrateIndex !== undefined) {
-        cleanSSR()
-        hasHydrated = true
-      }
+        // 2. SSR Cleanup (Once)
+        if (!hasHydrated && hydrateIndex !== undefined) {
+          cleanSSR()
+          hasHydrated = true
+        }
 
-      // 3. Teardown previous content
-      if (childSub) {
-        childSub.unsubscribe()
-        childSub = null
-      }
-      if (childNodes.length > 0) {
-        childNodes.forEach(n => n.parentNode?.removeChild(n))
-        childNodes = []
-      }
+        // 3. Teardown previous content
+        if (childSub) {
+          childSub.unsubscribe()
+          childSub = null
+        }
+        if (childNodes.length > 0) {
+          childNodes.forEach(n => n.parentNode?.removeChild(n))
+          childNodes = []
+        }
 
-      // 4. Render New Content
-      const nextSibling = anchor.nextSibling
+        // 4. Render New Content
+        const nextSibling = anchor.nextSibling
 
-      if (isTemplateResult(v)) {
-        // Nested Template
-        childSub = v.sub
-        // Fragment empties on insert
-        childNodes = Array.from(v.fragment.childNodes)
-        p.insertBefore(v.fragment, nextSibling)
-      } else {
-        // Primitive
-        const text = document.createTextNode(String(v ?? ''))
-        childNodes = [text]
-        p.insertBefore(text, nextSibling)
-      }
+        if (isTemplateResult(v)) {
+          // Nested Template
+          childSub = v.sub
+          // Fragment empties on insert
+          childNodes = Array.from(v.fragment.childNodes)
+          p.insertBefore(v.fragment, nextSibling)
+        } else {
+          // Primitive
+          const text = document.createTextNode(String(v ?? ''))
+          childNodes = [text]
+          p.insertBefore(text, nextSibling)
+        }
+      },
+      error: (e) => handleDomError(e, 'bindTextSlot'),
     }))
   }
   // 6. Static Primitive
@@ -519,56 +532,59 @@ function bindConditional(anchor: Node, binding: ConditionalBinding, sub: Subscri
   }
 
   sub.add(
-    binding.condition$.pipe(distinctUntilChanged()).subscribe((show) => {
-      // Cancel any in-progress leave animation
-      if (leaveController) {
-        leaveController.abort()
-        leaveController = null
-      }
+    binding.condition$.pipe(distinctUntilChanged()).subscribe({
+      next: (show) => {
+        // Cancel any in-progress leave animation
+        if (leaveController) {
+          leaveController.abort()
+          leaveController = null
+        }
 
-      if (!show && binding.leave && currentNodes.length > 0) {
-        // Run leave animation, then tear down
-        const nodesToRemove = currentNodes
-        const subToClean = currentSub
-        const controller = new AbortController()
-        leaveController = controller
+        if (!show && binding.leave && currentNodes.length > 0) {
+          // Run leave animation, then tear down
+          const nodesToRemove = currentNodes
+          const subToClean = currentSub
+          const controller = new AbortController()
+          leaveController = controller
 
-        // Clear references so next show=true starts fresh
-        currentNodes = []
-        currentSub = null
+          // Clear references so next show=true starts fresh
+          currentNodes = []
+          currentSub = null
 
-        const el = findFirstElement(nodesToRemove)
-        if (el) {
-          binding.leave(el).then(() => {
-            if (controller.signal.aborted) return
-            leaveController = null
+          const el = findFirstElement(nodesToRemove)
+          if (el) {
+            binding.leave(el).then(() => {
+              if (controller.signal.aborted) return
+              leaveController = null
+              if (subToClean) subToClean.unsubscribe()
+              for (const n of nodesToRemove) {
+                if (n.parentNode) n.parentNode.removeChild(n)
+              }
+            })
+          } else {
+            // No element to animate — tear down immediately
             if (subToClean) subToClean.unsubscribe()
             for (const n of nodesToRemove) {
               if (n.parentNode) n.parentNode.removeChild(n)
             }
-          })
-        } else {
-          // No element to animate — tear down immediately
-          if (subToClean) subToClean.unsubscribe()
-          for (const n of nodesToRemove) {
-            if (n.parentNode) n.parentNode.removeChild(n)
+            leaveController = null
           }
-          leaveController = null
-        }
 
-        // Mount the else branch if present
-        if (binding.elseFn) {
-          insertAndEnter(binding.elseFn)
-        }
-      } else {
-        // No leave animation needed — tear down immediately
-        teardownCurrent()
+          // Mount the else branch if present
+          if (binding.elseFn) {
+            insertAndEnter(binding.elseFn)
+          }
+        } else {
+          // No leave animation needed — tear down immediately
+          teardownCurrent()
 
-        const fn = show ? binding.thenFn : binding.elseFn
-        if (fn) {
-          insertAndEnter(fn)
+          const fn = show ? binding.thenFn : binding.elseFn
+          if (fn) {
+            insertAndEnter(fn)
+          }
         }
-      }
+      },
+      error: (e) => handleDomError(e, 'bindConditional'),
     }),
   )
 
@@ -598,7 +614,8 @@ function bindList(anchor: Node, binding: ListBinding, sub: Subscription): void {
   const leavingViews = new Map<string, { view: ItemView; controller: AbortController }>()
 
   sub.add(
-    binding.items$.subscribe((items) => {
+    binding.items$.subscribe({
+      next: (items) => {
       const nextKeys = new Set<string>()
       const newKeys: string[] = []
 
@@ -690,18 +707,23 @@ function bindList(anchor: Node, binding: ListBinding, sub: Subscription): void {
           }
         }
       }
+      },
+      error: (e) => handleDomError(e, 'bindList'),
     }),
   )
 }
 
 function bindAttributeSlot(el: Element, name: string, value: unknown, sub: Subscription): void {
   if (isObservable(value)) {
-    sub.add((value as Observable<unknown>).subscribe((v) => {
-      if (v === null || v === undefined) {
-        el.removeAttribute(name)
-      } else {
-        el.setAttribute(name, String(v))
-      }
+    sub.add((value as Observable<unknown>).subscribe({
+      next: (v) => {
+        if (v === null || v === undefined) {
+          el.removeAttribute(name)
+        } else {
+          el.setAttribute(name, String(v))
+        }
+      },
+      error: (e) => handleDomError(e, 'bindAttributeSlot'),
     }))
   } else {
     if (value === null || value === undefined) {
@@ -722,8 +744,9 @@ function bindEventSlot(el: Element, eventName: string, value: unknown, sub: Subs
 
 function bindPropertySlot(el: Element, propName: string, value: unknown, sub: Subscription): void {
   if (isObservable(value)) {
-    sub.add((value as Observable<unknown>).subscribe((v) => {
-      ; (el as any)[propName] = v
+    sub.add((value as Observable<unknown>).subscribe({
+      next: (v) => { (el as any)[propName] = v },
+      error: (e) => handleDomError(e, 'bindPropertySlot'),
     }))
   } else {
     ; (el as any)[propName] = value
@@ -732,9 +755,12 @@ function bindPropertySlot(el: Element, propName: string, value: unknown, sub: Su
 
 function bindBooleanAttrSlot(el: Element, name: string, value: unknown, sub: Subscription): void {
   if (isObservable(value)) {
-    sub.add((value as Observable<unknown>).subscribe((v) => {
-      if (v) el.setAttribute(name, '')
-      else el.removeAttribute(name)
+    sub.add((value as Observable<unknown>).subscribe({
+      next: (v) => {
+        if (v) el.setAttribute(name, '')
+        else el.removeAttribute(name)
+      },
+      error: (e) => handleDomError(e, 'bindBooleanAttrSlot'),
     }))
   } else {
     if (value) el.setAttribute(name, '')

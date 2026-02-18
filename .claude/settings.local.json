@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(git stash pop:*)",
-      "WebFetch(domain:localhost)"
+      "WebFetch(domain:localhost)",
+      "Bash(git commit:*)",
+      "Bash(git -C \"C:/Users/HP/Web/Frontend/rxjs/rxjs-spa\" ls-files)",
+      "Bash(git -C \"C:/Users/HP/Web/Frontend/rxjs/rxjs-spa\" status)",
+      "Bash(npm install:*)",
+      "Bash(npm -w product-configurator run build --prefix \"C:/Users/HP/Web/Frontend/rxjs/rxjs-spa\")",
+      "Bash(npm -w product-configurator run dev --prefix \"C:/Users/HP/Web/Frontend/rxjs/rxjs-spa\")"
     ]
   }
 }

@@ -1,7 +1,9 @@
 import type { Observable } from 'rxjs'
 import { BehaviorSubject, Subscription } from 'rxjs'
+import { distinctUntilChanged } from 'rxjs/operators'
 import { createLiveValue } from './template'
 import type { LiveValue } from './template'
+import { handleDomError } from './error-handler'
 
 type Unsub = () => void
 
@@ -15,8 +17,9 @@ function isNil(v: unknown): v is null | undefined {
  */
 export function text(el: Element) {
   return (value$: Observable<string | number>): Subscription =>
-    value$.subscribe((v) => {
-      el.textContent = String(v)
+    value$.pipe(distinctUntilChanged()).subscribe({
+      next: (v) => { el.textContent = String(v) },
+      error: (e) => handleDomError(e, 'text'),
     })
 }
 
@@ -29,8 +32,9 @@ export function text(el: Element) {
  */
 export function innerHtml(el: Element) {
   return (value$: Observable<string>): Subscription =>
-    value$.subscribe((v) => {
-      ; (el as HTMLElement).innerHTML = v
+    value$.subscribe({
+      next: (v) => { (el as HTMLElement).innerHTML = v },
+      error: (e) => handleDomError(e, 'innerHtml'),
     })
 }
 
@@ -50,8 +54,9 @@ export function escapeHtml(str: string): string {
  */
 export function safeHtml(el: Element) {
   return (value$: Observable<string>): Subscription =>
-    value$.subscribe((v) => {
-      ; (el as HTMLElement).innerHTML = escapeHtml(v)
+    value$.subscribe({
+      next: (v) => { (el as HTMLElement).innerHTML = escapeHtml(v) },
+      error: (e) => handleDomError(e, 'safeHtml'),
     })
 }
 
@@ -62,9 +67,12 @@ export function safeHtml(el: Element) {
  */
 export function attr(el: Element, name: string) {
   return (value$: Observable<string | number | null | undefined>): Subscription =>
-    value$.subscribe((v) => {
-      if (isNil(v)) el.removeAttribute(name)
-      else el.setAttribute(name, String(v))
+    value$.pipe(distinctUntilChanged()).subscribe({
+      next: (v) => {
+        if (isNil(v)) el.removeAttribute(name)
+        else el.setAttribute(name, String(v))
+      },
+      error: (e) => handleDomError(e, 'attr'),
     })
 }
 
@@ -75,8 +83,9 @@ export function attr(el: Element, name: string) {
  */
 export function prop<T extends object, K extends keyof T>(el: T, key: K) {
   return (value$: Observable<T[K]>): Subscription =>
-    value$.subscribe((v) => {
-      ; (el as any)[key] = v
+    value$.pipe(distinctUntilChanged()).subscribe({
+      next: (v) => { (el as any)[key] = v },
+      error: (e) => handleDomError(e, 'prop'),
     })
 }
 
@@ -87,9 +96,12 @@ export function prop<T extends object, K extends keyof T>(el: T, key: K) {
  */
 export function style(el: HTMLElement, name: keyof CSSStyleDeclaration) {
   return (value$: Observable<string | number | null | undefined>): Subscription =>
-    value$.subscribe((v) => {
-      if (isNil(v)) (el.style as any)[name] = ''
-      else (el.style as any)[name] = String(v)
+    value$.pipe(distinctUntilChanged()).subscribe({
+      next: (v) => {
+        if (isNil(v)) (el.style as any)[name] = ''
+        else (el.style as any)[name] = String(v)
+      },
+      error: (e) => handleDomError(e, 'style'),
     })
 }
 
@@ -99,8 +111,9 @@ export function style(el: HTMLElement, name: keyof CSSStyleDeclaration) {
  */
 export function classToggle(el: Element, className: string) {
   return (on$: Observable<boolean>): Subscription =>
-    on$.subscribe((on) => {
-      el.classList.toggle(className, !!on)
+    on$.pipe(distinctUntilChanged()).subscribe({
+      next: (on) => { el.classList.toggle(className, !!on) },
+      error: (e) => handleDomError(e, 'classToggle'),
     })
 }
 
@@ -111,7 +124,11 @@ export function classToggle(el: Element, className: string) {
  * (typically a Subject). Business rules live in upstream `map(...)` functions.
  */
 export function dispatch<T>(target: { next: (value: T) => void }) {
-  return (value$: Observable<T>): Subscription => value$.subscribe((v) => target.next(v))
+  return (value$: Observable<T>): Subscription =>
+    value$.subscribe({
+      next: (v) => target.next(v),
+      error: (e) => handleDomError(e, 'dispatch'),
+    })
 }
 
 /**
@@ -152,8 +169,9 @@ export function mount(
  */
 export function documentTitle(suffix?: string) {
   return (value$: Observable<string>): Subscription =>
-    value$.subscribe((title) => {
-      document.title = suffix ? `${title} | ${suffix}` : title
+    value$.pipe(distinctUntilChanged()).subscribe({
+      next: (title) => { document.title = suffix ? `${title} | ${suffix}` : title },
+      error: (e) => handleDomError(e, 'documentTitle'),
     })
 }
 
@@ -164,14 +182,17 @@ export function documentTitle(suffix?: string) {
  */
 export function metaContent(name: string) {
   return (value$: Observable<string>): Subscription =>
-    value$.subscribe((content) => {
-      let el = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)
-      if (!el) {
-        el = document.createElement('meta')
-        el.setAttribute('name', name)
-        document.head.appendChild(el)
-      }
-      el.setAttribute('content', content)
+    value$.subscribe({
+      next: (content) => {
+        let el = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)
+        if (!el) {
+          el = document.createElement('meta')
+          el.setAttribute('name', name)
+          document.head.appendChild(el)
+        }
+        el.setAttribute('content', content)
+      },
+      error: (e) => handleDomError(e, 'metaContent'),
     })
 }
 
@@ -193,35 +214,38 @@ export function renderList<T>(
   const nodes = new Map<string, Node>()
 
   return (items$: Observable<readonly T[]>): Subscription =>
-    items$.subscribe((items) => {
-      const nextKeys = new Set<string>()
-      const nextNodes: Node[] = []
+    items$.subscribe({
+      next: (items) => {
+        const nextKeys = new Set<string>()
+        const nextNodes: Node[] = []
 
-      items.forEach((item, i) => {
-        const key = keyFn(item, i)
-        nextKeys.add(key)
+        items.forEach((item, i) => {
+          const key = keyFn(item, i)
+          nextKeys.add(key)
 
-        let node = nodes.get(key)
-        if (!node) {
-          node = createNode(item, i)
-          nodes.set(key, node)
-        } else if (updateNode) {
-          updateNode(node, item, i)
+          let node = nodes.get(key)
+          if (!node) {
+            node = createNode(item, i)
+            nodes.set(key, node)
+          } else if (updateNode) {
+            updateNode(node, item, i)
+          }
+
+          nextNodes.push(node)
+        })
+
+        for (const [key, node] of nodes) {
+          if (!nextKeys.has(key)) {
+            nodes.delete(key)
+            if (node.parentNode === container) container.removeChild(node)
+          }
         }
 
-        nextNodes.push(node)
-      })
-
-      for (const [key, node] of nodes) {
-        if (!nextKeys.has(key)) {
-          nodes.delete(key)
-          if (node.parentNode === container) container.removeChild(node)
-        }
-      }
-
-      const frag = document.createDocumentFragment()
-      for (const node of nextNodes) frag.appendChild(node)
-      container.replaceChildren(frag)
+        const frag = document.createDocumentFragment()
+        for (const node of nextNodes) frag.appendChild(node)
+        container.replaceChildren(frag)
+      },
+      error: (e) => handleDomError(e, 'renderList'),
     })
 }
 
@@ -249,37 +273,40 @@ export function renderKeyedList<T>(
   const views = new Map<string, KeyedView>()
 
   return (items$: Observable<readonly T[]>): Subscription =>
-    items$.subscribe((items) => {
-      const nextKeys = new Set<string>()
-      const nextNodes: Node[] = []
+    items$.subscribe({
+      next: (items) => {
+        const nextKeys = new Set<string>()
+        const nextNodes: Node[] = []
 
-      items.forEach((item, i) => {
-        const key = keyFn(item, i)
-        nextKeys.add(key)
+        items.forEach((item, i) => {
+          const key = keyFn(item, i)
+          nextKeys.add(key)
 
-        let view = views.get(key)
-        if (!view) {
-          const created = createView(item, i)
-          view = { node: created.node, sub: toSubscription(created.sub) }
-          views.set(key, view)
-        } else if (updateView) {
-          updateView(view, item, i)
+          let view = views.get(key)
+          if (!view) {
+            const created = createView(item, i)
+            view = { node: created.node, sub: toSubscription(created.sub) }
+            views.set(key, view)
+          } else if (updateView) {
+            updateView(view, item, i)
+          }
+
+          nextNodes.push(view.node)
+        })
+
+        for (const [key, view] of views) {
+          if (!nextKeys.has(key)) {
+            views.delete(key)
+            view.sub.unsubscribe()
+            if (view.node.parentNode === container) container.removeChild(view.node)
+          }
         }
 
-        nextNodes.push(view.node)
-      })
-
-      for (const [key, view] of views) {
-        if (!nextKeys.has(key)) {
-          views.delete(key)
-          view.sub.unsubscribe()
-          if (view.node.parentNode === container) container.removeChild(view.node)
-        }
-      }
-
-      const frag = document.createDocumentFragment()
-      for (const node of nextNodes) frag.appendChild(node)
-      container.replaceChildren(frag)
+        const frag = document.createDocumentFragment()
+        for (const node of nextNodes) frag.appendChild(node)
+        container.replaceChildren(frag)
+      },
+      error: (e) => handleDomError(e, 'renderKeyedList'),
     })
 }
 
@@ -322,41 +349,44 @@ export function renderKeyedComponents<T, A>(
   }
 
   return (items$: Observable<readonly T[]>): Subscription =>
-    items$.subscribe((items) => {
-      const nextKeys = new Set<string>()
-      const nextNodes: Node[] = []
+    items$.subscribe({
+      next: (items) => {
+        const nextKeys = new Set<string>()
+        const nextNodes: Node[] = []
 
-      items.forEach((item, i) => {
-        const key = keyFn(item, i)
-        nextKeys.add(key)
+        items.forEach((item, i) => {
+          const key = keyFn(item, i)
+          nextKeys.add(key)
 
-        let view = views.get(key)
-        if (!view) {
-          const input = new BehaviorSubject<T>(item)
-          const created = factory(createLiveValue(input), ctx, key)
-          view = { node: created.node, sub: toSubscription(created.sub), input }
-          views.set(key, view)
-        } else {
-          // push updated item into the per-item stream, without recreating subscriptions
-          view.input.next(item)
+          let view = views.get(key)
+          if (!view) {
+            const input = new BehaviorSubject<T>(item)
+            const created = factory(createLiveValue(input), ctx, key)
+            view = { node: created.node, sub: toSubscription(created.sub), input }
+            views.set(key, view)
+          } else {
+            // push updated item into the per-item stream, without recreating subscriptions
+            view.input.next(item)
+          }
+
+          nextNodes.push(view.node)
+        })
+
+        // remove disappeared
+        for (const [key, view] of views) {
+          if (!nextKeys.has(key)) {
+            views.delete(key)
+            view.sub.unsubscribe()
+            view.input.complete()
+            if (view.node.parentNode === container) container.removeChild(view.node)
+          }
         }
 
-        nextNodes.push(view.node)
-      })
-
-      // remove disappeared
-      for (const [key, view] of views) {
-        if (!nextKeys.has(key)) {
-          views.delete(key)
-          view.sub.unsubscribe()
-          view.input.complete()
-          if (view.node.parentNode === container) container.removeChild(view.node)
-        }
-      }
-
-      // order nodes
-      const frag = document.createDocumentFragment()
-      for (const node of nextNodes) frag.appendChild(node)
-      container.replaceChildren(frag)
+        // order nodes
+        const frag = document.createDocumentFragment()
+        for (const node of nextNodes) frag.appendChild(node)
+        container.replaceChildren(frag)
+      },
+      error: (e) => handleDomError(e, 'renderKeyedComponents'),
     })
 }

@@ -1,0 +1,19 @@
+{
+  "name": "starter-minimal",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b tsconfig.build.json && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "rxjs": "7.8.2",
+    "@rxjs-spa/dom": "0.1.0",
+    "@rxjs-spa/store": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "*",
+    "vite": "*"
+  }
+}
