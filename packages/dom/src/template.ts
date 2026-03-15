@@ -2,7 +2,7 @@ import { BehaviorSubject, isObservable, Observable, Subscription } from 'rxjs'
 import { distinctUntilChanged } from 'rxjs/operators'
 import { escapeHtml } from './sinks'
 import { handleDomError } from './error-handler'
-import type { AnimateFn, AnimationConfig } from './animation'
+import type { AnimateFn } from './animation'
 import { findFirstElement } from './animation'
 
 // ---------------------------------------------------------------------------
@@ -866,7 +866,7 @@ export function when(
   condition$: Observable<boolean>,
   thenFn: () => TemplateResult,
   elseFn?: () => TemplateResult,
-  animation?: AnimationConfig,
+  animation?: { enter?: AnimateFn; leave?: AnimateFn },
 ): ConditionalBinding {
   return {
     __conditional: true,
@@ -900,7 +900,7 @@ export function list<T>(
   items$: Observable<readonly T[]>,
   keyFn: (item: T, index: number) => string,
   templateFn: (item$: LiveValue<T>, key: string) => TemplateResult,
-  animation?: AnimationConfig,
+  animation?: { enter?: AnimateFn; leave?: AnimateFn },
 ): ListBinding<T> {
   return {
     __list: true,

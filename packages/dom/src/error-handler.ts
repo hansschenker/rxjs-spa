@@ -36,10 +36,13 @@ export function setDomErrorHandler(fn: DomErrorHandler): void {
  * Internal: call the configured error handler, swallowing any exception
  * thrown by the handler itself so it never crashes a DOM pipeline.
  */
-export function handleDomError(error: unknown, context: string): void {
-  try {
-    handler(error, context)
-  } catch {
-    // Never let a broken handler crash the pipeline
-  }
+// export function handleDomError(error: unknown, context: string): void {
+//   try {
+//     handler(error, context)
+//   } catch {
+//     // Never let a broken handler crash the pipeline
+//   }
+// }
+export function handleDomError(error: unknown, context: string) {
+  console.error(`[DOM Error] ${context}:`, error)
 }

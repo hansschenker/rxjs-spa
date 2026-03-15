@@ -1,6 +1,6 @@
 import { of } from 'rxjs'
 import { map, switchMap } from 'rxjs/operators'
-import { defineComponent, html, when, list } from '@rxjs-spa/dom'
+import { defineComponent, html, list } from '@rxjs-spa/dom'
 import { lazy, withScrollReset } from '@rxjs-spa/router'
 import type { Router } from '@rxjs-spa/router'
 import { cartStore } from './store/cart.store'
@@ -61,7 +61,7 @@ export const App = defineComponent<{ router: Router<ShopRoute> }>(({ router }) =
           <a href="${router.link('/')}">Products</a>
           <a href="${router.link('/cart')}">
             Cart
-            ${when(cartBadgeVisible$, () => html`<span class="cart-badge">${cartCount$}</span>`)}
+            <span class="${cartBadgeVisible$.pipe(map(v => v ? 'cart-badge' : 'cart-badge hidden'))}">${cartCount$}</span>
           </a>
         </div>
         <button class="btn btn-outline cart-toggle" @click=${() => cartStore.dispatch({ type: 'TOGGLE_DRAWER' })}>
@@ -74,45 +74,39 @@ export const App = defineComponent<{ router: Router<ShopRoute> }>(({ router }) =
       ${view$}
     </main>
 
-    ${when(drawerOpen$, () => html`
-      <div class="drawer-overlay" @click=${() => cartStore.dispatch({ type: 'CLOSE_DRAWER' })}></div>
-      <aside class="cart-drawer">
-        <div class="drawer-header">
-          <h2>Your Cart</h2>
-          <button class="drawer-close" @click=${() => cartStore.dispatch({ type: 'CLOSE_DRAWER' })}>X</button>
-        </div>
-        <div class="drawer-body">
-          ${when(drawerEmpty$,
-            () => html`<p class="empty-msg">Your cart is empty</p>`,
-            () => html`
-              <ul class="drawer-items">
-                ${list(drawerItems$, i => String(i.product.id), (item$) => {
-                  const title$ = item$.pipe(map(i => i.product.title))
-                  const image$ = item$.pipe(map(i => i.product.image))
-                  const linePrice$ = item$.pipe(map(i => `$${(i.product.price * i.quantity).toFixed(2)}`))
-                  const qty$ = item$.pipe(map(i => String(i.quantity)))
-                  return html`
-                    <li class="drawer-item">
-                      <img class="drawer-item-img" src="${image$}" alt="${title$}" />
-                      <div class="drawer-item-info">
-                        <p class="drawer-item-title">${title$}</p>
-                        <p class="drawer-item-price">${linePrice$}</p>
-                        <span class="drawer-item-qty">Qty: ${qty$}</span>
-                      </div>
-                      <button class="drawer-item-remove" @click=${() => cartStore.dispatch({ type: 'REMOVE_FROM_CART', productId: item$.snapshot().product.id })}>x</button>
-                    </li>
-                  `
-                })}
-              </ul>
-            `,
-          )}
-        </div>
-        <div class="drawer-footer">
-          <p class="drawer-subtotal">Subtotal: <strong>$${drawerSubtotal$.pipe(map(s => s.toFixed(2)))}</strong></p>
-          <a class="btn btn-primary drawer-btn" href="${router.link('/cart')}" @click=${() => cartStore.dispatch({ type: 'CLOSE_DRAWER' })}>View Cart</a>
-          <a class="btn btn-accent drawer-btn" href="${router.link('/checkout')}" @click=${() => cartStore.dispatch({ type: 'CLOSE_DRAWER' })}>Checkout</a>
-        </div>
-      </aside>
-    `)}
+    <div class="${drawerOpen$.pipe(map(o => o ? 'drawer-overlay' : 'drawer-overlay hidden'))}" @click=${() => cartStore.dispatch({ type: 'CLOSE_DRAWER' })}></div>
+    <aside class="${drawerOpen$.pipe(map(o => o ? 'cart-drawer' : 'cart-drawer hidden'))}">
+      <div class="drawer-header">
+        <h2>Your Cart</h2>
+        <button class="drawer-close" @click=${() => cartStore.dispatch({ type: 'CLOSE_DRAWER' })}>X</button>
+      </div>
+      <div class="drawer-body">
+        <p class="${drawerEmpty$.pipe(map(e => e ? 'empty-msg' : 'empty-msg hidden'))}">Your cart is empty</p>
+        <ul class="${drawerEmpty$.pipe(map(e => e ? 'drawer-items hidden' : 'drawer-items'))}">
+          ${list(drawerItems$, i => String(i.product.id), (item$) => {
+            const title$ = item$.pipe(map(i => i.product.title))
+            const image$ = item$.pipe(map(i => i.product.image))
+            const linePrice$ = item$.pipe(map(i => `$${(i.product.price * i.quantity).toFixed(2)}`))
+            const qty$ = item$.pipe(map(i => String(i.quantity)))
+            return html`
+              <li class="drawer-item">
+                <img class="drawer-item-img" src="${image$}" alt="${title$}" />
+                <div class="drawer-item-info">
+                  <p class="drawer-item-title">${title$}</p>
+                  <p class="drawer-item-price">${linePrice$}</p>
+                  <span class="drawer-item-qty">Qty: ${qty$}</span>
+                </div>
+                <button class="drawer-item-remove" @click=${() => cartStore.dispatch({ type: 'REMOVE_FROM_CART', productId: item$.snapshot().product.id })}>x</button>
+              </li>
+            `
+          })}
+        </ul>
+      </div>
+      <div class="drawer-footer">
+        <p class="drawer-subtotal">Subtotal: <strong>$${drawerSubtotal$.pipe(map(s => s.toFixed(2)))}</strong></p>
+        <a class="btn btn-primary drawer-btn" href="${router.link('/cart')}" @click=${() => cartStore.dispatch({ type: 'CLOSE_DRAWER' })}>View Cart</a>
+        <a class="btn btn-accent drawer-btn" href="${router.link('/checkout')}" @click=${() => cartStore.dispatch({ type: 'CLOSE_DRAWER' })}>Checkout</a>
+      </div>
+    </aside>
   `
 })

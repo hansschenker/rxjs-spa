@@ -118,7 +118,7 @@ describe('App shell', () => {
     const { fragment, sub } = App({ router })
     await flush()
 
-    const badge = fragment.querySelector('.cart-badge')
+    const badge = fragment.querySelector('.cart-badge:not(.hidden)')
     expect(badge).toBeNull()
 
     sub.unsubscribe()
@@ -138,7 +138,7 @@ describe('App shell', () => {
     const { fragment, sub } = App({ router })
     await flush()
 
-    const badge = fragment.querySelector('.cart-badge')
+    const badge = fragment.querySelector('.cart-badge:not(.hidden)')
     expect(badge).not.toBeNull()
     expect(badge?.textContent).toContain('3')
 
